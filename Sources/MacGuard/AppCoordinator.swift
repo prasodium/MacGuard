@@ -95,7 +95,7 @@ final class AppCoordinator: ObservableObject {
 
     private func hooks() -> TheftResponseCoordinator.Hooks {
         .init(transition: { [weak self] e in self?.apply(e) },
-              update: { [weak self] i in self?.incident = i },
+              update: { [weak self] i in if i.id == self?.machine.incidentID { self?.incident = i } },   // ignore late updates from an older incident
               log: { [weak self] t, r, id in self?.log(t, r, incident: id) },
               monitoringState: { [weak self] in self?.health.level.rawValue ?? "unknown" },
               localNotification: { [weak self] t, b in self?.postLocal(t, b) })
@@ -128,7 +128,9 @@ final class AppCoordinator: ObservableObject {
         case .disconnectCancelled:
             apply(.powerDisconnectCancelled)
         case .disconnectConfirmed:
-            guard machine.phase == .armed || machine.phase == .powerTransitionPending || machine.phase == .monitoringDegraded else {
+            let canTrigger = machine.phase == .armed || machine.phase == .powerTransitionPending || machine.phase == .monitoringDegraded
+                || (machine.phase.isTheftFlow && machine.chargerReconnected)   // unplugged again after a reconnect
+            guard canTrigger else {
                 log(.chargerDisconnected, "Charger disconnected (protection off)"); return }
             startIncident()
         case .reconnected:

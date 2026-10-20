@@ -72,6 +72,21 @@ func check(_ m: inout GuardStateMachine, _ e: GuardEvent, _ expected: Bool = tru
         var m = armed(); m.apply(.disarm(authorized: true))
         check(&m, .theftConfirmed(incident: UUID()), false); #expect(m.phase == .disarmed)
     }
+    @Test func disconnectAgainAfterReconnectIsANewIncident() {
+        var m = armed(); let first = UUID(), second = UUID()
+        check(&m, .theftConfirmed(incident: first)); check(&m, .alarmStarted)
+        check(&m, .chargerReconnected)
+        check(&m, .theftConfirmed(incident: second))
+        #expect(m.incidentID == second); #expect(m.phase == .theftDetected); #expect(!m.chargerReconnected)
+        check(&m, .alarmStarted); #expect(m.phase == .alarmActive)
+        // and a third, again only after another reconnect
+        check(&m, .theftConfirmed(incident: UUID()), false)
+        check(&m, .chargerReconnected); check(&m, .theftConfirmed(incident: UUID()))
+    }
+    @Test func secondDisconnectWithoutReconnectIsStillADuplicate() {
+        var m = armed(); check(&m, .theftConfirmed(incident: UUID()))
+        check(&m, .theftConfirmed(incident: UUID()), false)
+    }
     @Test func degradationAndRecovery() {
         var m = armed(); m.apply(.monitoringFailed); #expect(m.phase == .monitoringDegraded)
         m.apply(.monitoringRecovered); #expect(m.phase == .armed)

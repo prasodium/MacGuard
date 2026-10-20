@@ -67,6 +67,16 @@ final class MockNotifier: IncidentNotifying, @unchecked Sendable {
         await c.respond(to: Incident(), settings: s, hooks: hooks(Sink()))
         #expect(n.order == ["initial", "loc"]) // initial first, location update after
     }
+    @Test func secondIncidentAfterReconnectSoundsTheAlarmAgain() async throws {
+        let alarm = MockAlarm(); let n = MockNotifier()
+        let c = TheftResponseCoordinator(alarm: alarm, locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev)
+        await c.respond(to: Incident(), settings: settings, hooks: hooks(Sink()))
+        #expect(alarm.startCount == 1)
+        alarm.stop()                                   // charger reconnected -> alarm silenced
+        await c.respond(to: Incident(), settings: settings, hooks: hooks(Sink()))
+        #expect(alarm.startCount == 2 && alarm.isActive)
+        #expect(n.initial == 2)                        // each incident gets its own alert
+    }
     @Test func initialOnlyModeSendsSingleEmailAfterLocation() async throws {
         let n = MockNotifier()
         let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev)

@@ -67,6 +67,11 @@ public struct GuardStateMachine: Equatable, Sendable {
         case (.monitoringDegraded, .theftConfirmed(let id)):
             phase = .theftDetected; incidentID = id; chargerReconnected = false
 
+        // A disconnect AFTER the charger came back is a new incident, even if the owner never disarmed.
+        // Without a reconnect in between it is still a duplicate and is rejected.
+        case (let p, .theftConfirmed(let id)) where p.isTheftFlow && chargerReconnected:
+            phase = .theftDetected; incidentID = id; chargerReconnected = false
+
         case (let p, .alarmStarted) where p.isTheftFlow: advance(.alarmActive)
         case (let p, .locationStarted) where p.isTheftFlow: advance(.locationPending)
         case (let p, .locationFinished) where p.isTheftFlow: advance(.notificationPending)

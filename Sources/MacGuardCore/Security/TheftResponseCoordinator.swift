@@ -37,6 +37,7 @@ public final class TheftResponseCoordinator {
     /// Runs the whole response. Duplicate invocations for the same incident are ignored.
     public func respond(to initial: Incident, settings: AppSettings, hooks: Hooks) async {
         guard handled.insert(initial.id).inserted else { return }
+        cancelFollowUps() // a new incident replaces the previous incident's follow-up schedule
         var incident = initial
         let id = incident.id
         func commit() { try? store?.save(incident); hooks.update(incident) }
