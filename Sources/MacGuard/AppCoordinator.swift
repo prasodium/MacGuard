@@ -135,6 +135,9 @@ final class AppCoordinator: ObservableObject {
             log(.chargerReconnected, machine.phase.isTheftFlow ? "Charger reconnected; alarm and protection unchanged" : "Charger reconnected", incident: machine.incidentID)
             if machine.phase.isTheftFlow, var i = incident {
                 apply(.chargerReconnected); i.chargerReconnectedAt = Date(); incident = i; try? store?.save(i)
+                if settings.stopAlarmOnReconnect, alarm.isActive {
+                    alarm.stop(); log(.alarmStopped, "Silenced because the charger was reconnected (setting)", incident: i.id)
+                }
                 if settings.sendRecoveryNotice, settings.emailEnabled {
                     Task { await notifier?.submitStatus(incidentID: i.id, code: "charger_reconnected", monitoring: health.level.rawValue) }
                 }

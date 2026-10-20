@@ -65,6 +65,7 @@ struct SettingsView: View {
             Section("Behavior") {
                 Toggle("Raise volume to maximum", isOn: s.alarm.maximizeVolume)
                 Toggle("Show a notification", isOn: s.alarm.showLocalNotification)
+                Toggle("Stop when the charger is reconnected", isOn: s.stopAlarmOnReconnect)
                 Toggle("Keep alarming after the screen locks", isOn: s.alarm.continueAfterLock)
             }
         }.formStyle(.grouped)

@@ -105,7 +105,7 @@ Backend env vars (all optional if you configure from the app): `OWNER_EMAIL`, `F
 
 ## Limitations
 - **Charger monitoring:** only detects changes while MacGuard runs. Process death, shutdown, or full power loss go unnoticed; a gap is logged on next start but never converted into a theft event. A Mac unplugged *while asleep* is treated as a real disconnection on wake.
-- **Alarm:** can be inaudible (muted/headphones/volume), cannot run during sleep/shutdown/force-quit. Always stoppable by the owner.
+- **Alarm:** can be inaudible (muted/headphones/volume), cannot run during sleep/shutdown/force-quit. Always stoppable by the owner; by default it also stops when the charger is reconnected (Settings → Alarm), while protection stays armed until you disarm.
 - **Screen lock:** protects a running session only. macOS has no public "lock now" API, so MacGuard calls the private `SACLockScreenImmediate` (resolved at runtime; unsuitable for the App Store, may change in future macOS) and falls back to display sleep. Reported as *verified* only if macOS reports the session locked.
 - **Location:** estimate from Wi-Fi/Core Location, needs permission and network; may be stale. Never IP-geolocated, never fabricated. Not continuous tracking.
 - **Email:** "accepted" means the provider accepted the request; inbox delivery is not confirmed. A Mac that never reconnects can't send.

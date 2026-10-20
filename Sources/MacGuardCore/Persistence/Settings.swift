@@ -50,7 +50,36 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var launchAtLogin = false
     public var resumeArmedOnLaunch = true
     public var onboardingCompleted = false
+    /// Silence the alarm when the charger is plugged back in. Protection stays armed until the owner disarms.
+    public var stopAlarmOnReconnect = true
     public init() {}
+
+    /// Tolerant decoding: settings saved by an older version keep their values and new fields get defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppSettings.defaults
+        alarm = try c.decodeIfPresent(type(of: d.alarm).self, forKey: .alarm) ?? d.alarm
+        disconnectDelay = try c.decodeIfPresent(type(of: d.disconnectDelay).self, forKey: .disconnectDelay) ?? d.disconnectDelay
+        autoScreenLock = try c.decodeIfPresent(type(of: d.autoScreenLock).self, forKey: .autoScreenLock) ?? d.autoScreenLock
+        emailEnabled = try c.decodeIfPresent(type(of: d.emailEnabled).self, forKey: .emailEnabled) ?? d.emailEnabled
+        backendURL = try c.decodeIfPresent(type(of: d.backendURL).self, forKey: .backendURL) ?? d.backendURL
+        recipientEmail = try c.decodeIfPresent(type(of: d.recipientEmail).self, forKey: .recipientEmail) ?? d.recipientEmail
+        followUpMode = try c.decodeIfPresent(type(of: d.followUpMode).self, forKey: .followUpMode) ?? d.followUpMode
+        followUpInterval = try c.decodeIfPresent(type(of: d.followUpInterval).self, forKey: .followUpInterval) ?? d.followUpInterval
+        followUpMaxDuration = try c.decodeIfPresent(type(of: d.followUpMaxDuration).self, forKey: .followUpMaxDuration) ?? d.followUpMaxDuration
+        sendRecoveryNotice = try c.decodeIfPresent(type(of: d.sendRecoveryNotice).self, forKey: .sendRecoveryNotice) ?? d.sendRecoveryNotice
+        locationEnabled = try c.decodeIfPresent(type(of: d.locationEnabled).self, forKey: .locationEnabled) ?? d.locationEnabled
+        locationAccuracy = try c.decodeIfPresent(type(of: d.locationAccuracy).self, forKey: .locationAccuracy) ?? d.locationAccuracy
+        locationTimeout = try c.decodeIfPresent(type(of: d.locationTimeout).self, forKey: .locationTimeout) ?? d.locationTimeout
+        keepLastKnownLocation = try c.decodeIfPresent(type(of: d.keepLastKnownLocation).self, forKey: .keepLastKnownLocation) ?? d.keepLastKnownLocation
+        locationRetentionDays = try c.decodeIfPresent(type(of: d.locationRetentionDays).self, forKey: .locationRetentionDays) ?? d.locationRetentionDays
+        eventRetentionDays = try c.decodeIfPresent(type(of: d.eventRetentionDays).self, forKey: .eventRetentionDays) ?? d.eventRetentionDays
+        launchAtLogin = try c.decodeIfPresent(type(of: d.launchAtLogin).self, forKey: .launchAtLogin) ?? d.launchAtLogin
+        resumeArmedOnLaunch = try c.decodeIfPresent(type(of: d.resumeArmedOnLaunch).self, forKey: .resumeArmedOnLaunch) ?? d.resumeArmedOnLaunch
+        onboardingCompleted = try c.decodeIfPresent(type(of: d.onboardingCompleted).self, forKey: .onboardingCompleted) ?? d.onboardingCompleted
+        stopAlarmOnReconnect = try c.decodeIfPresent(type(of: d.stopAlarmOnReconnect).self, forKey: .stopAlarmOnReconnect) ?? d.stopAlarmOnReconnect
+    }
+    private static let defaults = AppSettings()
 }
 
 @MainActor

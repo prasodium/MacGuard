@@ -81,4 +81,13 @@ final class CapturingTransport: HTTPTransport, @unchecked Sendable {
         try s.save(i); let back = try #require(try s.incident(id: i.id))
         #expect(back.alarm == .succeeded); #expect(back.screenLock == .requestedUnverified); #expect(back.batteryPercent == 42)
     }
+
+    @Test func settingsFromOlderVersionKeepValuesAndGainDefaults() throws {
+        let old = #"{"disconnectDelay":3,"emailEnabled":true,"backendURL":"https://x.io","alarm":{"sound":"Glass","repeatInterval":2,"initialDelay":0,"continueAfterLock":true,"showLocalNotification":true,"maximizeVolume":true}}"#
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(old.utf8))
+        #expect(s.disconnectDelay == 3); #expect(s.emailEnabled); #expect(s.backendURL == "https://x.io"); #expect(s.alarm.sound == "Glass")
+        #expect(s.stopAlarmOnReconnect); #expect(s.followUpMode == .oneFollowUp)   // defaults for fields the old data lacks
+        let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
+        #expect(back == s)
+    }
 }
