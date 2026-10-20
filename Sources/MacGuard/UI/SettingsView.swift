@@ -40,7 +40,6 @@ struct SettingsView: View {
             Toggle("Show a local notification with the alarm", isOn: s.alarm.showLocalNotification)
             Toggle("Keep alarming after the screen locks", isOn: s.alarm.continueAfterLock)
             Button("Preview alarm") { c.testAlarm() }
-            Text("The alarm can be stopped only after owner authentication. It may be inaudible if speakers are muted or audio is routed elsewhere, and cannot sound during sleep, shutdown or if the app is force-quit.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -49,11 +48,8 @@ struct SettingsView: View {
             Picker("Charger-disconnection delay", selection: s.disconnectDelay) {
                 Text("Immediate").tag(0.0); Text("1 second").tag(1.0); Text("3 seconds").tag(3.0); Text("5 seconds").tag(5.0); Text("10 seconds").tag(10.0)
             }.onChange(of: c.settings.disconnectDelay) { c.power.setConfirmDelay($0) }
-            Text("Longer delays reduce false alarms from a loose cable but delay the response.").font(.caption).foregroundStyle(.secondary)
             Toggle("Request a screen lock when theft is detected", isOn: s.autoScreenLock)
-            Text("MacGuard locks the session with a macOS system call and reports whether it could verify the lock. If that call is unavailable it falls back to sleeping the display, which needs System Settings → Lock Screen → Require password: immediately.").font(.caption).foregroundStyle(.secondary)
             Toggle("Start MacGuard when I log in", isOn: Binding(get: { c.settings.launchAtLogin }, set: { c.setLaunchAtLogin($0) }))
-            Text("This starts after you log in. MacGuard cannot monitor before login or while the Mac is shut down.").font(.caption).foregroundStyle(.secondary)
             Toggle("Resume protection automatically after MacGuard restarts", isOn: s.resumeArmedOnLaunch)
         }
     }
@@ -75,14 +71,13 @@ struct SettingsView: View {
                         LabeledContent("Sending with", value: i.providerTitle)
                         LabeledContent("Sender", value: i.fromEmail ?? "not set")
                     }
-                    SecureField("Brevo API key", text: $brevoKey)
+                    SecureField("Brevo API key", text: $brevoKey).help("Sent once to your backend and kept there. Never stored on this Mac.")
                     TextField("Sender address verified in Brevo", text: $brevoFrom)
                     HStack {
                         Button("Save Brevo key") { Task { if await c.saveBrevo(apiKey: brevoKey, fromEmail: brevoFrom) { brevoKey = "" } } }
                             .disabled(brevoKey.count < 10 || !brevoFrom.contains("@"))
                         Button("Get a Brevo key…") { NSWorkspace.shared.open(URL(string: "https://app.brevo.com/settings/keys/api")!) }
                     }
-                    Text("The key is sent once over HTTPS to your backend, which checks it with Brevo and keeps it. It is not stored on this Mac, so a stolen Mac cannot leak it. Brevo's free plan needs no domain: verify one sender address in your Brevo account first.").font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("3. Where alerts are sent: your Gmail") {
@@ -92,10 +87,9 @@ struct SettingsView: View {
                     }
                     TextField("Gmail address for alerts", text: $gmail)
                     Button("Send verification code") { Task { await c.sendVerificationCode(to: gmail) } }.disabled(!gmail.contains("@"))
-                    TextField("6-digit code from the email", text: $code)
+                    TextField("6-digit code from the email", text: $code).help("Alerts only go to an address after its code is verified.")
                     Button("Verify address") { Task { if await c.confirmRecipient(email: gmail, code: code) { code = "" } } }
                         .disabled(code.count != 6 || !gmail.contains("@"))
-                    Text("Alerts are never sent to an address until you enter the code that was emailed to it. Changing the address asks for Touch ID / your password and notifies the previous address.").font(.caption).foregroundStyle(.secondary)
                 }
 
                 if let m = c.configMessage { Text(m).font(.callout).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 8)) }
@@ -107,7 +101,6 @@ struct SettingsView: View {
                         Button("Send test email") { Task { await c.testEmail() } }
                             .disabled(c.backendInfo != nil && c.backendInfo?.recipientVerified != true)
                     }
-                    Text("Other providers (Resend, console) are chosen on the backend with EMAIL_PROVIDER; see DEPLOYMENT.md.").font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Follow-ups") {
@@ -139,7 +132,6 @@ struct SettingsView: View {
             Stepper("Keep location history \(c.settings.locationRetentionDays) days", value: s.locationRetentionDays, in: 1...90)
             Text("Last fix: " + (c.lastLocation.map { "\($0.acquiredAt.formatted()) ±\(Int($0.horizontalAccuracy ?? 0)) m" } ?? "none"))
             Button("Clear location history…", role: .destructive) { confirmClear = "locations" }
-            Text("Location is requested only when you test it or when an incident occurs; never continuously.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -153,7 +145,6 @@ struct SettingsView: View {
                 }
                 if let r = locationResult { Text(r).font(.callout).textSelection(.enabled) }
                 Text(c.emailStatus).font(.caption).foregroundStyle(.secondary)
-                Text("Tests are recorded in the log and labelled TEST; they never create theft incidents.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Setup") {
                 Button("Open the setup guide") { c.showOnboarding = true }
@@ -165,7 +156,6 @@ struct SettingsView: View {
         Form {
             Stepper("Keep event log \(c.settings.eventRetentionDays) days", value: s.eventRetentionDays, in: 7...365, step: 7)
             Button("Clear event log…", role: .destructive) { confirmClear = "events" }
-            Text("Data is stored only on this Mac in ~/Library/Application Support/MacGuard (owner-only permissions). Secrets live in the Keychain.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

@@ -25,7 +25,7 @@ struct DashboardView: View {
             Button("Arm Protection") { c.confirmArm() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("\(c.snapshot?.summary ?? "Power state unknown"). If the charger is disconnected for \(Int(c.settings.disconnectDelay)) s, MacGuard will sound an alarm, request a screen lock\(c.settings.emailEnabled ? ", and email you" : "").")
+            Text(c.snapshot?.summary ?? "Power state unknown")
         }
         .alert("Cannot arm", isPresented: Binding(get: { c.armError != nil }, set: { if !$0 { c.armError = nil } })) {
             Button("OK") { c.armError = nil }
@@ -38,7 +38,7 @@ struct DashboardView: View {
             Image(systemName: "lock.laptopcomputer").font(.system(size: 34)).foregroundStyle(.tint)
             VStack(alignment: .leading) {
                 Text("MacGuard").font(.largeTitle.bold())
-                Text("Smart Protection. Instant Alerts. Better Recovery.").font(.subheadline).foregroundStyle(.secondary)
+                
             }
             Spacer()
             Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath").font(.title2).frame(width: 36, height: 36) }
@@ -81,7 +81,7 @@ struct DashboardView: View {
                 Label("Screen lock: \(lockText(i?.screenLock))", systemImage: "lock")
                 Label("Location: \(i?.locationOutcome?.rawValue ?? "pending")", systemImage: "location")
                 Label("Email: \(i?.notification.rawValue ?? "—")", systemImage: "envelope")
-                if c.machine.chargerReconnected { Label("Charger reconnected — Mac is NOT unlocked and protection stays on until you disarm.", systemImage: "bolt.fill") }
+                if c.machine.chargerReconnected { Label("Charger reconnected. Still armed.", systemImage: "bolt.fill") }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -99,7 +99,7 @@ struct DashboardView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], spacing: 12) {
             StatCard(title: "Charger", value: c.snapshot?.summary ?? "Unknown", symbol: "bolt")
             StatCard(title: "Battery", value: c.snapshot?.batteryPercent.map { "\($0)%" } ?? "n/a", symbol: "battery.75percent")
-            StatCard(title: "Monitoring", value: c.health.level.rawValue.capitalized + " — " + c.health.detail, symbol: "waveform.path.ecg")
+            StatCard(title: "Monitoring", value: c.health.level.rawValue.capitalized, symbol: "waveform.path.ecg")
             StatCard(title: "Location permission", value: c.locationProvider.authorization.rawValue, symbol: "location")
             StatCard(title: "Last location fix", value: c.lastLocation.map { $0.acquiredAt.formatted(date: .abbreviated, time: .shortened) + " (±\(Int($0.horizontalAccuracy ?? 0)) m)" } ?? "None", symbol: "mappin.and.ellipse")
             StatCard(title: "Email", value: c.emailConfigured ? "Configured" : (c.settings.emailEnabled ? "Not enrolled" : "Off"), symbol: "envelope")
@@ -109,7 +109,7 @@ struct DashboardView: View {
     }
 
     private var limitations: some View {
-        Text("MacGuard is a deterrent and recovery aid. It cannot stop someone from shutting the Mac down, force-quitting the app, or removing all power, and the alarm may be inaudible if speakers are muted.")
+        Text("A deterrent only. It cannot stop a shutdown.")
             .font(.footnote).foregroundStyle(.secondary)
     }
 }

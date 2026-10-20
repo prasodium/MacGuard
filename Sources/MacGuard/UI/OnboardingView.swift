@@ -30,27 +30,27 @@ struct OnboardingView: View {
         switch step {
         case 0:
             VStack(alignment: .leading, spacing: 8) {
-                Text("MacGuard watches your charger. If it is unplugged while protection is armed, it sounds an alarm, asks macOS to lock the screen, and can email you the Mac's location.").font(.title3)
-                Text("It cannot stop a thief from shutting down the Mac, force-quitting the app, or removing all power. Pair it with Find My.").foregroundStyle(.secondary)
+                Text("Unplug the charger while armed and MacGuard sounds an alarm, locks the screen and can email you.").font(.title3)
+                Text("It is a deterrent. Use Find My too.").foregroundStyle(.secondary)
             }
         case 1:
             VStack(alignment: .leading, spacing: 8) {
                 Label(c.snapshot?.summary ?? "Power state unavailable", systemImage: c.snapshot == nil ? "xmark.octagon" : "checkmark.circle")
                 Text("Battery: \(c.snapshot?.batteryPercent.map { "\($0)%" } ?? "n/a")")
-                Text("Monitoring: \(c.health.level.rawValue) — \(c.health.detail)").foregroundStyle(.secondary)
+                Text("Monitoring: \(c.health.level.rawValue)").foregroundStyle(.secondary)
             }
         case 2:
-            VStack(alignment: .leading) { Button("Play alarm preview") { c.testAlarm() }; Text("Preview plays for about 2 seconds.").foregroundStyle(.secondary) }
+            VStack(alignment: .leading) { Button("Play alarm preview") { c.testAlarm() };  }
         case 3:
             VStack(alignment: .leading, spacing: 8) {
-                Text("Optional: test the screen lock. Your display will turn off and, if your Mac requires a password immediately, you will need to sign in again.")
+                Text("Optional. This really locks your screen.")
                 Button("Lock my screen now (test)") {
                     Task { let r = await ScreenLockService().lock(); note = "Lock result: \(r.rawValue)"; c.log(.testEvent, "Screen lock test: \(r.rawValue)", test: true) }
                 }
             }
         case 4:
             VStack(alignment: .leading, spacing: 8) {
-                Text("Location lets alert emails include where the Mac is. It is requested only during incidents or tests. You can skip this; the alarm and lock still work.")
+                Text("Adds the Mac's position to alerts. Optional.")
                 Text("Status: \(c.locationProvider.authorization.rawValue)")
                 Button("Allow location access") { c.locationProvider.requestAuthorization() }
             }
@@ -58,11 +58,11 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Send email alerts", isOn: Binding(get: { c.settings.emailEnabled }, set: { c.settings.emailEnabled = $0; c.buildNotifier() }))
                 TextField("Backend URL (https://…)", text: Binding(get: { c.settings.backendURL }, set: { c.settings.backendURL = $0 }))
-                Text("Enter the enrollment token in Settings → Email. MacGuard never asks for an email password. Skipping leaves email alerts OFF.").font(.caption).foregroundStyle(.secondary)
+                Text("Finish email setup in Settings → Email.").font(.caption).foregroundStyle(.secondary)
             }
         case 6:
             VStack(alignment: .leading) {
-                Text("A test email is sent only when you press the button.")
+                EmptyView()
                 Button("Send test email") { Task { await c.testEmail(); note = c.emailStatus } }.disabled(!c.settings.emailEnabled)
             }
         case 7:
@@ -77,7 +77,7 @@ struct OnboardingView: View {
                 Label("Screen lock: \(c.settings.autoScreenLock ? "on" : "OFF")", systemImage: "lock")
                 Label("Location: \(c.settings.locationEnabled && c.locationProvider.authorization == .authorized ? "on" : "OFF / not authorized")", systemImage: "location")
                 Label("Email: \(c.emailConfigured ? "on" : "OFF")", systemImage: "envelope")
-                Text("Close this guide and press Arm Protection on the dashboard when the charger is connected.").foregroundStyle(.secondary)
+                Text("Plug in the charger, then press Arm Protection.").foregroundStyle(.secondary)
             }
         }
     }
