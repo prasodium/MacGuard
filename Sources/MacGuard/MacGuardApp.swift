@@ -57,8 +57,8 @@ struct MenuBarContent: View {
         Button("Open MacGuard") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
         Button("Settings…") { openSettingsWindow() }
         if c.alarm.isActive { Button("Stop Alarm…") { Task { await c.silenceAlarm() } } }
-        if c.machine.phase == .disarmed { Button("Arm Protection") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true); c.requestArm() } }
-        else { Button("Disarm Protection…") { Task { await c.disarm() } } }
+        if c.machine.phase == .disarmed { Button("Arm") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true); c.requestArm() } }
+        else { Button("Disarm") { Task { await c.disarm() } } }
         Divider()
         Button("Quit MacGuard") { NSApp.terminate(nil) }
     }

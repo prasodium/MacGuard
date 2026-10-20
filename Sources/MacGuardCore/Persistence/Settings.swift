@@ -4,7 +4,6 @@ public struct AlarmSettings: Codable, Equatable, Sendable {
     public var sound = "Sosumi"
     public var repeatInterval: TimeInterval = 2
     public var initialDelay: TimeInterval = 0
-    public var continueAfterLock = true
     public var showLocalNotification = true
     public var maximizeVolume = true
     public init() {}

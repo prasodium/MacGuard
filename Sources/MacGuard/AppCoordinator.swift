@@ -57,7 +57,7 @@ final class AppCoordinator: ObservableObject {
         // Views observe the coordinator, but settings live in SettingsStore: forward its changes so every
         // setting (steppers, pickers, toggles) refreshes the UI immediately instead of on the next redraw.
         settingsStore.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
-        if store == nil { banner = "Local security log could not be opened; events will not be saved." }
+        if store == nil { banner = "Can't save the event log." }
         buildNotifier()
         response = TheftResponseCoordinator(alarm: alarm, locker: ScreenLockService(), location: locationService,
                                             notifier: notifier, store: store, device: device)
@@ -119,7 +119,7 @@ final class AppCoordinator: ObservableObject {
 
     func log(_ type: SecurityEventType, _ result: String, incident: UUID? = nil, test: Bool = false) {
         let ev = SecurityEvent(type: type, result: result, incidentID: incident, isTest: test)
-        do { try store?.append(ev) } catch { banner = "Could not write to the local security log." }
+        do { try store?.append(ev) } catch { banner = "Can't save the event log." }
         refreshEvents()
     }
 
@@ -203,10 +203,10 @@ final class AppCoordinator: ObservableObject {
     func requestArm() {
         armError = nil
         guard let s = snapshot, s.external != .unknown, health.level == .healthy else {
-            armError = "MacGuard cannot read the power state, so it cannot arm safely."; return }
+            armError = "Can't read the power state."; return }
         guard s.external == .connected else {
-            armError = "The charger is not connected. Connect it first, then arm protection."; return }
-        guard power.detector.pendingSince == nil else { armError = "Power state is changing; try again."; return }
+            armError = "Plug in the charger first."; return }
+        guard power.detector.pendingSince == nil else { armError = "Try again in a moment."; return }
         armPrompt = true
     }
 
@@ -225,7 +225,7 @@ final class AppCoordinator: ObservableObject {
         let gap = last.map { Date().timeIntervalSince1970 - $0 }
         if let gap, gap > 30 { log(.monitoringGap, "MacGuard was not running for about \(Int(gap)) s") }
         guard p == .connected, machine.apply(.requestArm) else {
-            banner = "Protection was active before MacGuard stopped, but the charger is not connected. Reconnect it and arm again."
+            banner = "Protection was on before a restart. Plug in the charger and arm again."
             try? store?.setValue("armed", nil); return }
         apply(.armConfirmed); startHeartbeat()
         log(.protectionRestored, "Resumed after restart (user setting: resume protection)")
@@ -243,7 +243,7 @@ final class AppCoordinator: ObservableObject {
 
     func disarm() async {
         let needsAuth = machine.phase.isTheftFlow
-        guard await auth.authenticate(reason: "Disarm MacGuard protection") else { banner = "Authentication was not completed; protection stays on."; return }
+        guard await auth.authenticate(reason: "Disarm MacGuard protection") else { banner = "Not confirmed. Protection stays on."; return }
         _ = needsAuth
         alarm.stop(); response.cancelFollowUps()
         let id = machine.incidentID
@@ -277,7 +277,7 @@ final class AppCoordinator: ObservableObject {
         guard let n = notifier else { emailStatus = "Turn on email alerts first."; return }
         busy = "Sending test email…"; defer { busy = nil }
         switch await n.sendTest(device: device) {
-        case .success: emailStatus = "Test email accepted by the provider at \(Date().formatted(date: .omitted, time: .shortened)). Check your inbox."
+        case .success: emailStatus = "Test email sent. Check your inbox."
             log(.testEvent, "Test email accepted", test: true)
         case .failure(let e): emailStatus = e.userMessage; log(.testEvent, "Test email failed: \(e.userMessage)", test: true)
         }
@@ -289,8 +289,8 @@ final class AppCoordinator: ObservableObject {
     /// Checks the key with Brevo, then keeps it in the Keychain (nowhere else).
     func saveBrevo(apiKey: String, sender: String) async -> Bool {
         configMessage = nil
-        guard await auth.authenticate(reason: "Save the Brevo email key for MacGuard") else { configMessage = "Authentication was not completed."; return false }
-        guard RecipientVerifier.normalized(sender) != nil else { configMessage = "The sender must be an email address."; return false }
+        guard await auth.authenticate(reason: "Save the Brevo email key for MacGuard") else { configMessage = "Not confirmed."; return false }
+        guard RecipientVerifier.normalized(sender) != nil else { configMessage = "Enter a valid sender address."; return false }
         busy = "Checking key…"; defer { busy = nil }
         let previous = secrets.get(BrevoMailer.keyAccount)
         settings.senderEmail = sender.trimmingCharacters(in: .whitespaces)
@@ -302,7 +302,7 @@ final class AppCoordinator: ObservableObject {
             keySaved = m.hasKey
             configMessage = APIError.message(for: error); return false
         }
-        keySaved = true; configMessage = "Brevo key verified and saved in your Keychain."
+        keySaved = true; configMessage = "Key saved."
         return true
     }
 
@@ -313,13 +313,13 @@ final class AppCoordinator: ObservableObject {
 
     func sendVerificationCode(to email: String) async {
         configMessage = nil
-        guard mailer?.isConfigured == true else { configMessage = "Save your Brevo key and sender first."; return }
-        guard await auth.authenticate(reason: "Change the MacGuard alert email address") else { configMessage = "Authentication was not completed."; return }
+        guard mailer?.isConfigured == true else { configMessage = "Save the Brevo key first."; return }
+        guard await auth.authenticate(reason: "Change the MacGuard alert email address") else { configMessage = "Not confirmed."; return }
         busy = "Sending code…"; defer { busy = nil }
         do {
             try await verifier?.requestCode(email: email)
             pendingRecipient = verifier?.pendingEmail
-            configMessage = "A 6-digit code was emailed to \(email). Alerts do not go there until it is verified."
+            configMessage = "Code sent to \(email)."
         } catch let e as VerificationError { configMessage = e.userMessage }
         catch { configMessage = APIError.message(for: error) }
     }
@@ -329,7 +329,7 @@ final class AppCoordinator: ObservableObject {
             let verified = try verifier?.confirm(email: email, code: code) ?? ""
             let previous = settings.recipientEmail
             settings.recipientEmail = verified; buildNotifier()
-            configMessage = "Verified. Alert emails will now go to \(verified)."
+            configMessage = "Verified. Alerts go to \(verified)."
             log(.testEvent, "Alert recipient verified and changed", test: true)
             if !previous.isEmpty, previous != verified, let m = mailer {   // tell the old address, so an unwanted change is visible
                 let r = EmailTemplates.recipientChanged(newAddress: verified)
@@ -344,7 +344,7 @@ final class AppCoordinator: ObservableObject {
     func setLaunchAtLogin(_ on: Bool) {
         do { if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             settings.launchAtLogin = on
-        } catch { banner = "Could not change login item: \(error.localizedDescription)"; settings.launchAtLogin = SMAppService.mainApp.status == .enabled }
+        } catch { banner = "Can't change the login item."; settings.launchAtLogin = SMAppService.mainApp.status == .enabled }
     }
 
     func clearLocationHistory() { try? store?.clearLocations(); lastLocation = nil }

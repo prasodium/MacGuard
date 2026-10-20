@@ -8,137 +8,193 @@ struct DashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 18) {
                 header
-                if let b = c.banner { Banner(text: b, color: .orange) { c.banner = nil } }
-                if let w = c.locationWarning { Banner(text: w, color: .yellow, dismiss: nil) }
+                if let b = c.banner { Banner(text: b, dismiss: { c.banner = nil }) }
                 statusCard
                 if c.machine.phase.isTheftFlow { incidentCard }
-                grid
-                limitations
-            }.padding(24)
+                tiles
+                if let e = c.events.first(where: { !$0.isTest }) {
+                    Text("Last: \(e.type.title) · \(e.timestamp.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
         }
         .sheet(isPresented: $c.showOnboarding) { OnboardingView().environmentObject(c) }
         .sheet(isPresented: $showHistory) { IncidentHistoryView().environmentObject(c).frame(minWidth: 560, minHeight: 440) }
         .sheet(isPresented: $showFindMy) { FindMyView().frame(minWidth: 520, minHeight: 440) }
         .confirmationDialog("Arm protection?", isPresented: $c.armPrompt, titleVisibility: .visible) {
-            Button("Arm Protection") { c.confirmArm() }
+            Button("Arm") { c.confirmArm() }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(c.snapshot?.summary ?? "Power state unknown")
-        }
-        .alert("Cannot arm", isPresented: Binding(get: { c.armError != nil }, set: { if !$0 { c.armError = nil } })) {
+        } message: { Text(c.snapshot?.summary ?? "") }
+        .alert("Can't arm", isPresented: Binding(get: { c.armError != nil }, set: { if !$0 { c.armError = nil } })) {
             Button("OK") { c.armError = nil }
         } message: { Text(c.armError ?? "") }
         .overlay(alignment: .bottom) { if let b = c.busy { Text(b).padding(8).background(.regularMaterial, in: Capsule()).padding() } }
     }
 
+    // MARK: Header
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "lock.laptopcomputer").font(.system(size: 34)).foregroundStyle(.tint)
-            VStack(alignment: .leading) {
-                Text("MacGuard").font(.largeTitle.bold())
-                
-            }
+        HStack(spacing: 10) {
+            Image(systemName: "lock.laptopcomputer").font(.title).foregroundStyle(.tint)
+            Text("MacGuard").font(.title.bold())
             Spacer()
-            Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath").font(.title2).frame(width: 36, height: 36) }
-                .buttonStyle(.borderless).help("Event history").accessibilityLabel("Event history")
-            Button { showFindMy = true } label: { Image(systemName: "magnifyingglass.circle").font(.title2).frame(width: 36, height: 36) }
-                .buttonStyle(.borderless).help("Find My recovery instructions").accessibilityLabel("Find My recovery instructions")
-            Button { openSettingsWindow() } label: {
-                Image(systemName: "gearshape.fill").font(.title2).frame(width: 36, height: 36)
-            }
-            .buttonStyle(.borderless)
-            .help("Settings (⌘,)")
-            .accessibilityLabel("Settings")
+            IconButton(symbol: "clock.arrow.circlepath", label: "History") { showHistory = true }
+            IconButton(symbol: "magnifyingglass.circle", label: "Find My") { showFindMy = true }
+            IconButton(symbol: "gearshape.fill", label: "Settings") { openSettingsWindow() }
         }
     }
 
+    // MARK: Status
     private var statusCard: some View {
-        VStack(spacing: 10) {
-            Image(systemName: c.statusSymbol).font(.system(size: 44)).foregroundStyle(c.statusColor)
+        VStack(spacing: 14) {
+            Image(systemName: c.statusSymbol).font(.system(size: 52)).foregroundStyle(c.statusColor)
             Text(c.statusLabel).font(.title.bold()).foregroundStyle(c.statusColor)
-            if c.machine.phase == .monitoringDegraded { Text(c.health.detail).font(.callout) }
-            if c.alarm.isActive { Button("Stop Alarm…") { Task { await c.silenceAlarm() } }.buttonStyle(.borderedProminent).tint(.red) }
+            if c.alarm.isActive {
+                Button("Stop Alarm") { Task { await c.silenceAlarm() } }
+                    .buttonStyle(.borderedProminent).tint(.red).controlSize(.large)
+            }
             if c.machine.phase == .disarmed || c.machine.phase == .preparingToArm {
-                Button("Arm Protection") { c.requestArm() }.buttonStyle(.borderedProminent).controlSize(.large)
+                Button("Arm") { c.requestArm() }.buttonStyle(.borderedProminent).controlSize(.large)
                     .keyboardShortcut("a", modifiers: [.command, .shift])
             } else {
-                Button("Disarm Protection…") { Task { await c.disarm() } }.controlSize(.large)
+                Button("Disarm") { Task { await c.disarm() } }.controlSize(.large)
             }
         }
-        .frame(maxWidth: .infinity).padding().background(c.statusColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Protection status: \(c.statusLabel)")
+        .frame(maxWidth: .infinity).padding(.vertical, 26)
+        .background(c.statusColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .contain)
     }
 
+    // MARK: Incident
     private var incidentCard: some View {
         let i = c.incident
-        return GroupBox("Current incident") {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("ID \(i?.id.uuidString ?? "—")").font(.caption.monospaced())
-                Label("Alarm: \(i?.alarm.rawValue ?? "—")", systemImage: "bell")
-                Label("Screen lock: \(lockText(i?.screenLock))", systemImage: "lock")
-                Label("Location: \(i?.locationOutcome?.rawValue ?? "pending")", systemImage: "location")
-                Label("Email: \(i?.notification.rawValue ?? "—")", systemImage: "envelope")
-                if c.machine.chargerReconnected { Label("Charger reconnected. Still armed.", systemImage: "bolt.fill") }
-            }.frame(maxWidth: .infinity, alignment: .leading)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Incident").font(.headline)
+            IncidentRow(symbol: "bell", title: "Alarm", value: c.alarm.isActive ? "On" : "Stopped", ok: true)
+            IncidentRow(symbol: "lock", title: "Screen", value: lockText(i?.screenLock), ok: i?.screenLock == .succeeded)
+            IncidentRow(symbol: "location", title: "Location", value: locationText(i), ok: i?.location != nil)
+            IncidentRow(symbol: "envelope", title: "Email", value: emailText(i?.notification), ok: i?.notification == .accepted)
+            if c.machine.chargerReconnected { IncidentRow(symbol: "bolt.fill", title: "Charger", value: "Back", ok: true) }
         }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
     }
 
     private func lockText(_ s: ActionStatus?) -> String {
         switch s {
-        case .succeeded: return "session locked (verified)"
-        case .requestedUnverified: return "requested; lock not verified"
-        case .some(let v): return v.rawValue
-        case nil: return "—"
+        case .succeeded: return "Locked"
+        case .requestedUnverified: return "Requested"
+        case .failed: return "Failed"
+        case .skipped: return "Off"
+        default: return "…"
+        }
+    }
+    private func locationText(_ i: Incident?) -> String {
+        if i?.location != nil { return "Found" }
+        switch i?.locationOutcome {
+        case nil: return "Looking…"
+        case .disabledInSettings: return "Off"
+        default: return "Not found"
+        }
+    }
+    private func emailText(_ s: NotificationStatus?) -> String {
+        switch s {
+        case .accepted: return "Sent"
+        case .queued, .retrying: return "Sending…"
+        case .failed: return "Failed"
+        case .disabled: return "Off"
+        default: return "…"
         }
     }
 
-    private var grid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], spacing: 12) {
-            StatCard(title: "Charger", value: c.snapshot?.summary ?? "Unknown", symbol: "bolt")
-            StatCard(title: "Battery", value: c.snapshot?.batteryPercent.map { "\($0)%" } ?? "n/a", symbol: "battery.75percent")
-            StatCard(title: "Monitoring", value: c.health.level.rawValue.capitalized, symbol: "waveform.path.ecg")
-            StatCard(title: "Location permission", value: c.locationProvider.authorization.rawValue, symbol: "location")
-            StatCard(title: "Last location fix", value: c.lastLocation.map { $0.acquiredAt.formatted(date: .abbreviated, time: .shortened) + " (±\(Int($0.horizontalAccuracy ?? 0)) m)" } ?? "None", symbol: "mappin.and.ellipse")
-            StatCard(title: "Email", value: c.emailConfigured ? "Ready" : (c.settings.emailEnabled ? "Needs setup" : "Off"), symbol: "envelope")
-            StatCard(title: "Last event", value: c.events.first.map { "\($0.type.title) — \($0.timestamp.formatted(date: .omitted, time: .shortened))" } ?? "No events yet", symbol: "clock")
-            StatCard(title: "Notification", value: c.incident.map { $0.notification.rawValue } ?? c.emailStatus, symbol: "paperplane")
+    // MARK: Tiles
+    private var tiles: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+            let p = c.snapshot
+            StatusTile(symbol: "bolt.fill", title: "Charger",
+                       value: p.map { $0.external == .connected ? "Connected" : ($0.external == .disconnected ? "Unplugged" : "Unknown") } ?? "Unknown",
+                       state: p?.external == .connected ? .good : (p?.external == .disconnected ? .warning : .off))
+            StatusTile(symbol: "battery.75percent", title: "Battery", value: p?.batteryPercent.map { "\($0)%" } ?? "—",
+                       state: (p?.batteryPercent ?? 100) < 20 ? .warning : .good)
+            StatusTile(symbol: "location.fill", title: "Location", value: locationState.text, state: locationState.state) { openSettingsWindow() }
+            StatusTile(symbol: "envelope.fill", title: "Email", value: emailState.text, state: emailState.state) { openSettingsWindow() }
         }
     }
 
-    private var limitations: some View {
-        Text("A deterrent only. It cannot stop a shutdown.")
-            .font(.footnote).foregroundStyle(.secondary)
+    private var locationState: (text: String, state: TileState) {
+        guard c.settings.locationEnabled else { return ("Off", .off) }
+        switch c.locationProvider.authorization {
+        case .authorized: return ("On", .good)
+        case .notDetermined: return ("Allow", .warning)
+        default: return ("Blocked", .warning)
+        }
+    }
+    private var emailState: (text: String, state: TileState) {
+        if !c.settings.emailEnabled { return ("Off", .off) }
+        return c.emailConfigured ? ("Ready", .good) : ("Set up", .warning)
     }
 }
 
-struct StatCard: View {
-    let title: String, value: String, symbol: String
+// MARK: - Components
+
+enum TileState { case good, warning, off
+    var color: Color { switch self { case .good: return .green; case .warning: return .orange; case .off: return .gray } }
+    var word: String { switch self { case .good: return "OK"; case .warning: return "Needs attention"; case .off: return "Off" } }
+}
+
+struct StatusTile: View {
+    let symbol: String, title: String, value: String, state: TileState
+    var action: (() -> Void)?
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).frame(width: 22).foregroundStyle(.tint)
+        let content = HStack(spacing: 12) {
+            Image(systemName: symbol).font(.title3).frame(width: 28).foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.caption).foregroundStyle(.secondary)
-                Text(value).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Text(value).font(.headline)
             }
             Spacer(minLength: 0)
+            Circle().fill(state.color).frame(width: 10, height: 10)
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title): \(value). \(state.word)")
+        if let action { Button(action: action) { content }.buttonStyle(.plain) } else { content }
+    }
+}
+
+struct IncidentRow: View {
+    let symbol: String, title: String, value: String, ok: Bool
+    var body: some View {
+        HStack {
+            Image(systemName: symbol).frame(width: 24).foregroundStyle(.tint)
+            Text(title)
+            Spacer()
+            Text(value).foregroundStyle(ok ? .green : .secondary).bold()
+        }
         .accessibilityElement(children: .combine)
     }
 }
 
+struct IconButton: View {
+    let symbol: String, label: String, action: () -> Void
+    var body: some View {
+        Button(action: action) { Image(systemName: symbol).font(.title2).frame(width: 34, height: 34) }
+            .buttonStyle(.borderless).help(label).accessibilityLabel(label)
+    }
+}
+
 struct Banner: View {
-    let text: String; let color: Color; let dismiss: (() -> Void)?
+    let text: String; let dismiss: (() -> Void)?
     var body: some View {
         HStack {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             Text(text).font(.callout)
             Spacer()
-            if let dismiss { Button("Dismiss", action: dismiss).buttonStyle(.borderless) }
-        }.padding(10).background(color.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
+            if let dismiss { Button("OK", action: dismiss).buttonStyle(.borderless) }
+        }.padding(10).background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
     }
 }
