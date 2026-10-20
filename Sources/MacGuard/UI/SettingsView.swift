@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Local private var brevoFrom = ""
     @Local private var gmail = ""
     @Local private var code = ""
+    @Local private var locationResult: String?
     @Local private var confirmClear: String?
 
     var body: some View {
@@ -17,6 +18,7 @@ struct SettingsView: View {
             emailTab.tabItem { Label("Email", systemImage: "envelope") }
             locationTab.tabItem { Label("Location", systemImage: "location") }
             privacyTab.tabItem { Label("Privacy", systemImage: "hand.raised") }
+            testsTab.tabItem { Label("Tests", systemImage: "checkmark.seal") }
         }
         .frame(width: 620, height: 640).padding()
         .confirmationDialog("Are you sure?", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
@@ -139,6 +141,24 @@ struct SettingsView: View {
             Button("Clear location history…", role: .destructive) { confirmClear = "locations" }
             Text("Location is requested only when you test it or when an incident occurs; never continuously.").font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    private var testsTab: some View {
+        Form {
+            Section("Try the protections") {
+                HStack {
+                    Button("Test Alarm") { c.testAlarm() }
+                    Button("Test Email") { Task { await c.testEmail() } }
+                    Button("Test Location") { Task { locationResult = await c.testLocation() } }
+                }
+                if let r = locationResult { Text(r).font(.callout).textSelection(.enabled) }
+                Text(c.emailStatus).font(.caption).foregroundStyle(.secondary)
+                Text("Tests are recorded in the log and labelled TEST; they never create theft incidents.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Setup") {
+                Button("Open the setup guide") { c.showOnboarding = true }
+            }
+        }.formStyle(.grouped)
     }
 
     private var privacyTab: some View {

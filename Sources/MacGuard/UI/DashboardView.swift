@@ -3,7 +3,6 @@ import MacGuardCore
 
 struct DashboardView: View {
     @EnvironmentObject var c: AppCoordinator
-    @Local private var locationResult: String?
     @Local private var showHistory = false
     @Local private var showFindMy = false
 
@@ -16,7 +15,6 @@ struct DashboardView: View {
                 statusCard
                 if c.machine.phase.isTheftFlow { incidentCard }
                 grid
-                controls
                 limitations
             }.padding(24)
         }
@@ -43,6 +41,10 @@ struct DashboardView: View {
                 Text("Smart Protection. Instant Alerts. Better Recovery.").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
+            Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath").font(.title2).frame(width: 36, height: 36) }
+                .buttonStyle(.borderless).help("Event history").accessibilityLabel("Event history")
+            Button { showFindMy = true } label: { Image(systemName: "magnifyingglass.circle").font(.title2).frame(width: 36, height: 36) }
+                .buttonStyle(.borderless).help("Find My recovery instructions").accessibilityLabel("Find My recovery instructions")
             Button { openSettingsWindow() } label: {
                 Image(systemName: "gearshape.fill").font(.title2).frame(width: 36, height: 36)
             }
@@ -103,27 +105,6 @@ struct DashboardView: View {
             StatCard(title: "Email", value: c.emailConfigured ? "Configured" : (c.settings.emailEnabled ? "Not enrolled" : "Off"), symbol: "envelope")
             StatCard(title: "Last event", value: c.events.first.map { "\($0.type.title) — \($0.timestamp.formatted(date: .omitted, time: .shortened))" } ?? "No events yet", symbol: "clock")
             StatCard(title: "Notification", value: c.incident.map { $0.notification.rawValue } ?? c.emailStatus, symbol: "paperplane")
-        }
-    }
-
-    private var controls: some View {
-        GroupBox("Tools") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Button("Test Alarm") { c.testAlarm() }
-                    Button("Test Email") { Task { await c.testEmail() } }
-                    Button("Test Location") { Task { locationResult = await c.testLocation() } }
-                }
-                if let r = locationResult { Text(r).font(.callout).textSelection(.enabled) }
-                Text(c.emailStatus).font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button("Event History") { showHistory = true }
-                    Button("Find My Instructions") { showFindMy = true }
-                    Button("Settings…") { openSettingsWindow() }
-                    Button("Setup Guide") { c.showOnboarding = true }
-                }
-                Text("Test actions are recorded in the log and labelled TEST; they never create theft incidents.").font(.caption).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
