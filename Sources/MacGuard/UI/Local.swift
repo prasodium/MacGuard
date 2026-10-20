@@ -15,5 +15,8 @@ struct Local<T>: DynamicProperty {
 
 @MainActor func openSettingsWindow() {
     NSApp.activate(ignoringOtherApps: true)
-    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    // "showSettingsWindow:" is the macOS 14+ name; macOS 13 used "showPreferencesWindow:".
+    if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+    }
 }

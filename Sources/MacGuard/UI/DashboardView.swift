@@ -43,6 +43,12 @@ struct DashboardView: View {
                 Text("Smart Protection. Instant Alerts. Better Recovery.").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
+            Button { openSettingsWindow() } label: {
+                Image(systemName: "gearshape.fill").font(.title2).frame(width: 36, height: 36)
+            }
+            .buttonStyle(.borderless)
+            .help("Settings (⌘,)")
+            .accessibilityLabel("Settings")
         }
     }
 

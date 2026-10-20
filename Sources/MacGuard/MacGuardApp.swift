@@ -32,7 +32,12 @@ struct MacGuardApp: App {
             DashboardView()
                 .environmentObject(coordinator)
                 .frame(minWidth: 640, minHeight: 640)
-                .onAppear { delegate.coordinator = coordinator }
+                .onAppear {
+                    delegate.coordinator = coordinator
+                    if CommandLine.arguments.contains("--open-settings") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { openSettingsWindow() }
+                    }
+                }
         }
         Settings { SettingsView().environmentObject(coordinator) }
         MenuBarExtra {
@@ -50,6 +55,7 @@ struct MenuBarContent: View {
         Text(c.statusLabel)
         Divider()
         Button("Open MacGuard") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }
+        Button("Settings…") { openSettingsWindow() }
         if c.alarm.isActive { Button("Stop Alarm…") { Task { await c.silenceAlarm() } } }
         if c.machine.phase == .disarmed { Button("Arm Protection") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true); c.requestArm() } }
         else { Button("Disarm Protection…") { Task { await c.disarm() } } }
