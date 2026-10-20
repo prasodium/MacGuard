@@ -12,6 +12,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MacGuard"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 OPTS=()
 [ "$IDENTITY" != "-" ] && OPTS=(--options runtime --timestamp)
 codesign --force --sign "$IDENTITY" ${OPTS[@]+"${OPTS[@]}"} --entitlements Resources/MacGuard.entitlements "$APP"
