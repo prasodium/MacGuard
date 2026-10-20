@@ -1,6 +1,6 @@
 # MacGuard — Smart Protection. Instant Alerts. Better Recovery.
 
-A native macOS anti-theft utility. While **armed**, MacGuard watches the charger. If it is unplugged, it sounds a repeating alarm, asks macOS to lock the screen, tries to get the Mac's location, and emails you through a small authenticated backend. It also guides you through recovery with Apple's built-in **Find My**.
+A native macOS anti-theft utility. While **armed**, MacGuard watches the charger. If it is unplugged, it sounds a repeating alarm, asks macOS to lock the screen, tries to get the Mac's location, and emails you directly through Brevo. It also guides you through recovery with Apple's built-in **Find My**.
 
 > **MacGuard is a deterrent and recovery aid, not a security boundary.** It cannot stop anyone from shutting the Mac down, force-quitting the app, or removing all power. See [Limitations](#limitations).
 
@@ -13,9 +13,8 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Alarm (repeat, volume boost, preview, authenticated stop) | Implemented; playback start verified on hardware, **audibility/muted-speaker cases untested** |
 | Screen lock (private `SACLockScreenImmediate`, fallback `pmset displaysleepnow`, verified via CGSession) | Implemented; **verified on a real Mac (macOS 27.0.1): session reported locked**. Not tested on other macOS versions |
 | Location (Core Location, timeout, cache/last-known, validation) | Implemented, unit-tested with mocks; **real fix & permission flow awaiting hardware validation** |
-| Email backend (Node, HMAC auth, replay/rate-limit, idempotency, Brevo + Resend + console providers, HTML+text) | Implemented, 26 tests; in-app Brevo key + verified-recipient flow verified end to end against a fake Brevo (`scripts/e2e.sh`); Swift client ↔ backend verified end-to-end with the console provider. **Real Brevo/Resend delivery NOT verified** (no API key available during development; request shapes follow each provider's documented HTTP API) |
+| Email: direct to Brevo (key in Keychain), verified Gmail via emailed code, HTML+text templates, offline queue + backoff | Implemented, unit-tested; the Brevo endpoints were checked against the live API with a dummy key. **A real email has NOT been sent yet** (no key available during development) |
 | Retry/outbox/offline queue, follow-ups | Implemented, unit-tested |
-| In-app Brevo key + Gmail verification | Implemented and integration-tested against a **fake** Brevo; **not yet run against real Brevo** |
 | Dashboard, Settings, History, 9-step onboarding, Find My guide, menu bar | Implemented; launch smoke-tested, **not visually reviewed or VoiceOver-audited** |
 | Login item (`SMAppService`), restore-after-restart, sleep/wake handling | Implemented; **not hardware-tested** |
 | `.xcodeproj` | **Not provided** – Xcode isn't installed on the dev machine; the project is a Swift package + `scripts/build_app.sh` (open `Package.swift` in Xcode to get a project) |
@@ -44,24 +43,24 @@ See [TESTING.md](TESTING.md) for exactly what was run.
 │   └ TheftResponseCoordinator ─┬ AlarmManager (never waits on anything)         │
 │                               ├ ScreenLockService                              │
 │                               ├ LocationService ─ CoreLocationProvider         │
-│                               └ TheftNotificationService ─ outbox(SQLite)      │
-│ SecurityEventStore (SQLite 0600) · Keychain (install id + HMAC secret)         │
-└──────────────────────────────┬─────────────────────────────────────────────────┘
-                               │ HTTPS, HMAC-signed (timestamp, nonce, body hash)
-                  ┌────────────▼─────────────┐      ┌──────────────┐
-                  │ backend (Node, no deps)  │─────►│ Resend API   │
-                  │ auth · validate · limits │      └──────────────┘
-                  └──────────────────────────┘ ─► owner's inbox only
+│                               └ TheftNotificationService ─ outbox (SQLite)     │
+│                                      └ BrevoMailer + EmailTemplates            │
+│ RecipientVerifier (emailed 6-digit code) · SecurityEventStore (SQLite 0600)    │
+│ Keychain (Brevo API key)                                                       │
+└───────────────────────────────┬────────────────────────────────────────────────┘
+                                │ HTTPS  api.brevo.com
+                                ▼
+                  Brevo ──► your verified address (Gmail)
 ```
-Details: [ARCHITECTURE.md](ARCHITECTURE.md).
+No server of your own is needed. Details: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requirements
 - macOS 13+ (minimum), Apple Silicon primary (built `arm64`). Developed on macOS 27.0, Swift 6.4, **Command Line Tools only** (no Xcode needed).
-- Node ≥ 20 for the backend only. The app has no third-party dependencies.
+- A free [Brevo](https://www.brevo.com) account for email alerts (optional). The app has no third-party dependencies and needs no server.
 
 ## Build, test, run
 ```bash
-scripts/test.sh                 # backend tests + Swift tests
+scripts/test.sh                 # Swift tests
 scripts/build_app.sh debug      # → dist/MacGuard.app (ad-hoc signed)
 open dist/MacGuard.app
 dist/MacGuard.app/Contents/MacOS/MacGuard --self-check --play   # hardware smoke test
@@ -83,25 +82,13 @@ Copy `dist/MacGuard.app` to `/Applications`. The first launch of an ad-hoc-signe
 
 No Accessibility, Full Disk Access, or admin rights are requested. No privileged daemon is installed.
 
-## Email provider & backend
-See [DEPLOYMENT.md](DEPLOYMENT.md). Summary:
-```bash
-cd backend
-export EMAIL_PROVIDER=brevo BREVO_API_KEY=xkeysib-xxx OWNER_EMAIL=you@example.com FROM_EMAIL="MacGuard <you@example.com>"   # FROM must be your verified Brevo sender
-npm run issue-token      # prints a single-use enrollment token
-npm start
-```
-In the app: Settings → Email → enter the HTTPS backend URL and token → Enroll → Send test email.
+## Email setup (Settings → Email)
+1. Create a free Brevo account, verify **one sender address** (no domain needed), and create an API key (the **Get a key…** button opens Brevo's page).
+2. Paste the key and the verified sender, press **Save**. The key is checked with Brevo and stored **only in your Mac's Keychain** (needs Touch ID/password).
+3. Enter your **Gmail** (any address works), press **Send code**, type the 6-digit code from the email, press **Verify**. Alerts go to an address only after it is verified.
+4. Press **Send test email**.
 
-**Email** uses **Brevo** by default (free tier, no owned domain; the same method as the author's helper-store project). Everything can be configured from **Settings → Email**:
-1. enroll this Mac with your backend;
-2. paste your **Brevo API key** and verified sender address. The key is sent once over signed HTTPS, the backend checks it with Brevo and keeps it, and it is **never stored on this Mac** (a stolen Mac must not hold your email key);
-3. enter your **Gmail** (any address works) and press *Send verification code*. Alerts go to it **only after you enter the 6-digit code emailed to it**; changing it needs Touch ID/password and notifies the previous address;
-4. *Check connection* / *Send test email*.
-
-Operators can instead set env vars on the backend (`EMAIL_PROVIDER` = `brevo`|`resend`|`console`, keys, `OWNER_EMAIL` as a trusted bootstrap recipient). Resend and console remain available that way.
-
-Backend env vars (all optional if you configure from the app): `OWNER_EMAIL`, `FROM_EMAIL`, `BREVO_API_KEY`, `CONFIG_RATE_LIMIT_PER_HOUR`, `BREVO_API_BASE` (tests only), `RESEND_API_KEY`, `EMAIL_PROVIDER` (`brevo`|`resend`|`console`), `PORT`, `DATA_DIR`, `MAX_BODY_BYTES`, `CLOCK_SKEW_SECONDS`, `RATE_LIMIT_PER_MINUTE`, `ENROLL_RATE_LIMIT_PER_HOUR`.
+The trade-off of having the key on the Mac is explained in [SECURITY.md](SECURITY.md): if the Mac is stolen and not recovered, delete the key in Brevo.
 
 ## Limitations
 - **Charger monitoring:** only detects changes while MacGuard runs. Process death, shutdown, or full power loss go unnoticed; a gap is logged on next start but never converted into a theft event. A Mac unplugged *while asleep* is treated as a real disconnection on wake.
@@ -116,12 +103,12 @@ Backend env vars (all optional if you configure from the app): `OWNER_EMAIL`, `F
 Enable Find My Mac (+ Find My network), confirm the right Apple Account, check icloud.com/find, use Lost Mode, contact authorities if theft is suspected. MacGuard cannot read Find My locations and never asks for Apple credentials. **OPEN FIND MY** is in the dashboard.
 
 ## Privacy & data
-Everything stays on the Mac except what you send to *your* backend/provider on an incident. See [PRIVACY.md](PRIVACY.md). Event log retention default 90 days, location history 7 days (both configurable); "Clear" buttons in Settings.
+Everything stays on the Mac except the alert emails sent through your Brevo account. See [PRIVACY.md](PRIVACY.md). Event log retention default 90 days, location history 7 days (both configurable); "Clear" buttons in Settings.
 
 ## Troubleshooting
 - *"Cannot arm"* — charger unplugged or power unreadable; plug in and check Dashboard → Monitoring.
 - *Location unavailable* — grant permission in System Settings; run **Test Location**. Unsigned dev runs (bare binary) can't get a prompt; use the `.app`.
-- *Email not arriving* — Test Email result is shown on the dashboard; check spam, backend logs, domain verification in Resend. 401 = re-enroll.
+- *Email not arriving* — the Test result is shown in Settings → Email / Tests. 401 = bad key; 400 = the sender is not verified in Brevo; also check spam and Brevo's logs.
 - *Screen lock "unverified"* — the private call was unavailable and the fallback only slept the display; set Lock Screen → Require password → Immediately.
 - *Login item not starting* — approve it in System Settings → General → Login Items.
 
@@ -129,7 +116,7 @@ Everything stays on the Mac except what you send to *your* backend/provider on a
 `SIGN_IDENTITY="Developer ID Application: …" scripts/package.sh` signs with hardened runtime and zips; then `xcrun notarytool submit … --wait` and `xcrun stapler staple`. Not performed for this repository's current state; test location, login item and sleep/wake with the signed build (they can behave differently from debug/ad-hoc).
 
 ## Uninstall
-`scripts/uninstall.sh` (disarm first). Removes the app, `~/Library/Application Support/MacGuard`, preferences, Keychain items.
+`scripts/uninstall.sh` (disarm first). Removes the app, `~/Library/Application Support/MacGuard`, preferences and the Keychain item; delete the key in Brevo too.
 
 ## Known issues
 See [TESTING.md](TESTING.md#known-gaps).

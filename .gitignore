@@ -3,7 +3,4 @@ build/
 dist/
 *.xcuserstate
 .DS_Store
-backend/node_modules/
-backend/data/
-backend/.env
 .env

@@ -1,32 +1,37 @@
 # Testing
 
 ```bash
-scripts/test.sh   # backend (node:test) + Swift (Swift Testing)
+scripts/test.sh   # Swift tests (Swift Testing)
 ```
 
-## Results at the time of writing (macOS 27.0.1, arm64, Swift 6.4, CLT only)
-- **Swift: 64 tests / 7 suites pass.** Power detector & monitor (connected, disconnected, fully charged, low battery, duplicate notifications, unknown, API failure, start-on-battery, transient disconnect, wake), state machine (arming, invalid transitions, duplicate suppression, forward-only flow, reconnection, unauthorized disarm, degradation/recovery), location (fresh, cached, timeout, permission denied, disabled, invalid coordinates, last-known, cancellation, map URL), notifications (payloads, retry/backoff, exhaustion, permanent errors, dedupe, offline resend, test email), theft response (alarm independent of email/location/lock failure, single execution per incident), security (HTTPS enforcement, signature vector shared with Node, DB permissions, no provider keys in source, log content, retention).
-- **Backend: 26 tests pass** (Brevo/Resend request shapes, provider selection, `/v1/info`, key save/reject, emailed-code verification incl. expiry/lockout/hashing, previous-address notice, rate limits, unverified recipient receives nothing). Auth (bad/stale/replayed), validation, size limit, idempotency, enrollment, rate limit, provider failure hiding, templates (map link only for valid coords, escaping, labels), Resend request shape.
-- **Real-hardware checks run** (`MacGuard --self-check --play --lock-test`): live IOKit power read, SQLite round-trip and 0600 file mode, Keychain round-trip, system sounds present, `NSSound.play()` accepted, GUI app launches without a crash report.
-- **In-app Brevo + Gmail verification end to end** (`scripts/e2e.sh`: Swift client ↔ backend ↔ **fake** Brevo): bad key rejected, key saved, alerts refused before verification, wrong code rejected, correct code verifies, alert goes to the verified address.
-- **End-to-end** (`--self-check --e2e <url> <token>`): Swift client enrolls with, authenticates to, and sends test + incident alerts through the real Node backend (console provider); duplicate incident produced one email.
+## Results at the time of writing (macOS 27.0.1, arm64, Swift 6.4, Command Line Tools only)
+- **90 tests / 11 suites pass**, including:
+  - power detector & monitor (connected, disconnected, fully charged, low battery, duplicate notifications, unknown, API failure, start-on-battery, transient disconnect, wake)
+  - state machine, including repeated unplug/replug cycles that must alarm every time
+  - location (fresh, cached, timeout, denied, invalid coordinates, last-known, cancellation)
+  - Brevo mailer (request shape, headers, sender parsing, HTTPS-only, error mapping, key storage, key verification)
+  - recipient verification (code emailed, hash-only storage, expiry, 5-attempt lockout, single use, rate limit, invalid addresses)
+  - notification outbox (backoff, exhaustion, permanent errors, dedupe, offline resend, alerts wait for a verified address)
+  - email templates (map link only for valid coordinates, honest FRESH/CACHED/LAST KNOWN labels, escaping, required fields)
+  - theft response (alarm independent of email/location/lock failure; one execution per incident)
+  - security (DB permissions, no key-shaped strings in source, only `BrevoMailer` references Brevo, settings migration)
+- **Real-hardware checks run** (`MacGuard --self-check --play --lock-test`): live IOKit power read, SQLite round-trip and 0600 mode, Keychain round-trip, system sounds present, `NSSound.play()` accepted, **screen lock verified locked via CGSession**, GUI launches without a crash report.
+- **Real network check:** Brevo's `/v3/account` and `/v3/smtp/email` endpoints exist and return the error shape the app parses (`{"message","code"}`, HTTP 401 for an invalid key). **No real Brevo key was available, so a real email has never been sent by this app.**
 
-## Manual hardware checklist (NOT yet performed — mark when done)
-- [ ] Unplug charger while armed → alarm within delay + one incident; replug → recorded, alarm continues
-- [ ] 100 % charged & plugged: arming works, no false alarm
-- [ ] Start app on battery: no alarm, cannot arm
-- [ ] Close dashboard: still armed; menu bar shows status
-- [ ] Quit while armed requires authentication; Disarm and Stop Alarm require authentication
-- [ ] Alarm audible with muted output + "raise volume" on; with headphones (documented limit)
-- [x] Screen lock: `MacGuard --self-check --lock-test` on macOS 27.0.1 → session locked, verified via CGSession (**locks your session; run deliberately**)
-- [ ] Screen lock from a real theft incident (end to end) and on other macOS versions
+## Manual hardware checklist (NOT yet performed unless ticked)
+- [ ] Settings → Email: save a real Brevo key + verified sender; verify your Gmail with the emailed code; Send test email arrives
+- [ ] Unplug charger while armed → alarm + one incident + alert email; replug → alarm stops; unplug again → alarms again
+- [ ] 100 % charged & plugged: arming works, no false alarm; start app on battery: no alarm, cannot arm
+- [ ] Close dashboard: still armed; menu bar shows status; quit while armed requires authentication
+- [ ] Alarm audible with muted output + "raise volume" on; headphones (documented limit)
+- [x] Screen lock via `--lock-test` on macOS 27.0.1 (locks your session; run deliberately)
+- [ ] Screen lock from a real incident, and on other macOS versions
 - [ ] Location permission flow (grant/deny); Test Location accuracy; timeout with Wi-Fi off
-- [ ] Real Resend: Test Email, incident email, follow-up, Wi-Fi off then on (queued → sent)
-- [ ] Sleep/wake while armed (gap logged, power re-read); unplug during sleep → alert on wake
-- [ ] Kill -9 then relaunch: gap logged, protection resumes only if charger connected
+- [ ] Wi-Fi off during an incident, then on: queued alert is sent
+- [ ] Sleep/wake while armed (gap logged); unplug during sleep → alert on wake
+- [ ] kill -9 then relaunch: gap logged, protection resumes only if the charger is connected
 - [ ] Login item starts after login; signed + notarized build re-test
-- [ ] VoiceOver pass, light/dark appearance review
-- [ ] Idle CPU/energy in Activity Monitor over 1 h (target ≈ 0 % CPU; not yet measured)
+- [ ] VoiceOver pass, light/dark review; idle CPU/energy over 1 h (not measured)
 
 ## Known gaps
-No XCUITest/UI tests; coordinator-level (AppCoordinator) logic is untested apart from its collaborators; no `.xcodeproj`; Resend delivery and the physical charger transition were not exercised; resource consumption not measured.
+No UI tests; `AppCoordinator` glue is covered by an integration test that mirrors it; no `.xcodeproj`; real Brevo delivery and the physical charger transition were not exercised; resource use not measured.

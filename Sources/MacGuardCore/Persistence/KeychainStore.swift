@@ -7,7 +7,7 @@ public protocol SecretStoring: Sendable {
     func delete(_ account: String)
 }
 
-/// Generic-password Keychain storage for the per-installation backend secret.
+/// Generic-password Keychain storage (used for the Brevo API key).
 public struct KeychainStore: SecretStoring {
     let service: String
     public init(service: String = "com.harprosad.macguard") { self.service = service }

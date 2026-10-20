@@ -18,7 +18,9 @@ final class AppCoordinator: ObservableObject {
     let secrets = KeychainStore()
     let connectivity = ConnectivityWatcher()
     private(set) var notifier: TheftNotificationService?
-    private(set) var api: APIClient?
+    let mailConfig = MailConfig()
+    private(set) var mailer: BrevoMailer?
+    private(set) var verifier: RecipientVerifier?
     private var response: TheftResponseCoordinator!
 
     // Published state
@@ -31,8 +33,8 @@ final class AppCoordinator: ObservableObject {
     @Published var armPrompt = false
     @Published var armError: String?
     @Published var emailStatus = "Not tested"
-    @Published var backendInfo: BackendInfo?
-    @Published var backendInfoError: String?
+    @Published var keySaved = false
+    @Published var pendingRecipient: String?
     @Published var configMessage: String?
     @Published var lastLocation: LocationRecord?
     @Published var busy: String?
@@ -74,11 +76,18 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    /// (Re)creates the Brevo mailer, recipient verifier and notifier from current settings.
     func buildNotifier() {
-        guard let store, settings.emailEnabled, !settings.backendURL.isEmpty else { notifier = nil; api = nil; return }
-        let c = APIClient(baseURL: settings.backendURL, secrets: secrets, allowLocalHTTP: true)
-        api = c
-        let n = TheftNotificationService(api: c, store: store)
+        mailConfig.sender = settings.senderEmail
+        mailConfig.recipient = settings.recipientEmail.isEmpty ? nil : settings.recipientEmail
+        guard let store else { return }
+        let m = mailer ?? BrevoMailer(secrets: secrets, config: mailConfig)
+        mailer = m
+        verifier = RecipientVerifier(store: store, mailer: m)
+        keySaved = m.hasKey; pendingRecipient = verifier?.pendingEmail
+        guard settings.emailEnabled else { notifier = nil; return }
+        let cfg = mailConfig
+        let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient })
         notifier = n
         Task { await n.setOnStatus { [weak self] id, status, msg in Task { @MainActor in self?.notificationChanged(id, status, msg) } } }
         connectivity.start { Task { await n.flush() } }
@@ -181,7 +190,7 @@ final class AppCoordinator: ObservableObject {
         guard var i = incident, i.id == id else { return }
         i.notification = status; incident = i; try? store?.save(i)
         switch status {
-        case .accepted: log(.emailAccepted, "Accepted by backend/provider (inbox delivery not confirmed)", incident: id); apply(.notificationSent)
+        case .accepted: log(.emailAccepted, "Accepted by Brevo (inbox delivery not confirmed)", incident: id); apply(.notificationSent)
         case .failed: log(.emailFailed, msg, incident: id)
         case .retrying, .queued: emailStatus = msg
         default: break
@@ -265,7 +274,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     func testEmail() async {
-        guard let n = notifier else { emailStatus = "Email is not configured."; return }
+        guard let n = notifier else { emailStatus = "Turn on email alerts first."; return }
         busy = "Sending test email…"; defer { busy = nil }
         switch await n.sendTest(device: device) {
         case .success: emailStatus = "Test email accepted by the provider at \(Date().formatted(date: .omitted, time: .shortened)). Check your inbox."
@@ -274,62 +283,62 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    func enroll(token: String) async {
-        buildNotifier()
-        guard let api else { emailStatus = "Enter a valid backend URL first."; return }
-        busy = "Enrolling…"; defer { busy = nil }
-        do { try await api.enroll(token: token, deviceName: device.name); emailStatus = "Enrolled with the alert backend."; await refreshBackendInfo() }
-        catch let e as APIError { emailStatus = e.userMessage } catch { emailStatus = "Enrollment failed." }
-    }
+    // MARK: Email configuration (each change needs owner authentication)
+    var emailConfigured: Bool { settings.emailEnabled && keySaved && !settings.senderEmail.isEmpty && !settings.recipientEmail.isEmpty }
 
-    func refreshBackendInfo() async {
-        backendInfo = nil; backendInfoError = nil
-        guard let n = notifier else { backendInfoError = "Turn on email alerts and enter the backend URL first."; return }
-        guard api?.isEnrolled == true else { backendInfoError = "This Mac is not enrolled yet. Enter an enrollment token."; return }
-        busy = "Checking backend…"; defer { busy = nil }
-        switch await n.fetchBackendInfo() {
-        case .success(let i): backendInfo = i
-        case .failure(let e): backendInfoError = e.userMessage
-        }
-    }
-
-    // MARK: In-app email configuration (each change needs owner authentication)
-    /// Sends the Brevo key to the backend once; nothing is kept on this Mac.
-    func saveBrevo(apiKey: String, fromEmail: String) async -> Bool {
+    /// Checks the key with Brevo, then keeps it in the Keychain (nowhere else).
+    func saveBrevo(apiKey: String, sender: String) async -> Bool {
         configMessage = nil
-        guard let n = notifier, api?.isEnrolled == true else { configMessage = "Enroll this Mac with your backend first."; return false }
         guard await auth.authenticate(reason: "Save the Brevo email key for MacGuard") else { configMessage = "Authentication was not completed."; return false }
-        busy = "Saving key…"; defer { busy = nil }
-        switch await n.saveProvider("brevo", apiKey: apiKey, fromEmail: fromEmail) {
-        case .success: configMessage = "Brevo key verified and saved on your backend."; await refreshBackendInfo(); return true
-        case .failure(let e): configMessage = e.userMessage; return false
+        guard RecipientVerifier.normalized(sender) != nil else { configMessage = "The sender must be an email address."; return false }
+        busy = "Checking key…"; defer { busy = nil }
+        let previous = secrets.get(BrevoMailer.keyAccount)
+        settings.senderEmail = sender.trimmingCharacters(in: .whitespaces)
+        buildNotifier()
+        guard let m = mailer, m.saveKey(apiKey) else { configMessage = "Could not store the key in the Keychain."; return false }
+        do { try await m.verifyKey() }
+        catch {
+            if let previous { _ = secrets.set(BrevoMailer.keyAccount, previous) } else { m.removeKey() }
+            keySaved = m.hasKey
+            configMessage = APIError.message(for: error); return false
         }
+        keySaved = true; configMessage = "Brevo key verified and saved in your Keychain."
+        return true
+    }
+
+    func removeBrevoKey() async {
+        guard await auth.authenticate(reason: "Remove the Brevo email key") else { return }
+        mailer?.removeKey(); keySaved = false; configMessage = "Brevo key removed."
     }
 
     func sendVerificationCode(to email: String) async {
         configMessage = nil
-        guard let n = notifier, api?.isEnrolled == true else { configMessage = "Enroll this Mac with your backend first."; return }
+        guard mailer?.isConfigured == true else { configMessage = "Save your Brevo key and sender first."; return }
         guard await auth.authenticate(reason: "Change the MacGuard alert email address") else { configMessage = "Authentication was not completed."; return }
         busy = "Sending code…"; defer { busy = nil }
-        switch await n.requestRecipientCode(email: email) {
-        case .success: configMessage = "A 6-digit code was emailed to \(email). Enter it below. Alerts do not go there until it is verified."; await refreshBackendInfo()
-        case .failure(let e): configMessage = e.userMessage
-        }
+        do {
+            try await verifier?.requestCode(email: email)
+            pendingRecipient = verifier?.pendingEmail
+            configMessage = "A 6-digit code was emailed to \(email). Alerts do not go there until it is verified."
+        } catch let e as VerificationError { configMessage = e.userMessage }
+        catch { configMessage = APIError.message(for: error) }
     }
 
-    func confirmRecipient(email: String, code: String) async -> Bool {
-        guard let n = notifier else { return false }
-        busy = "Verifying…"; defer { busy = nil }
-        switch await n.confirmRecipient(email: email, code: code) {
-        case .success:
-            configMessage = "Verified. Alert emails will now go to \(email)."
+    func confirmRecipient(email: String, code: String) -> Bool {
+        do {
+            let verified = try verifier?.confirm(email: email, code: code) ?? ""
+            let previous = settings.recipientEmail
+            settings.recipientEmail = verified; buildNotifier()
+            configMessage = "Verified. Alert emails will now go to \(verified)."
             log(.testEvent, "Alert recipient verified and changed", test: true)
-            await refreshBackendInfo(); return true
-        case .failure(let e): configMessage = e.userMessage; return false
-        }
+            if !previous.isEmpty, previous != verified, let m = mailer {   // tell the old address, so an unwanted change is visible
+                let r = EmailTemplates.recipientChanged(newAddress: verified)
+                Task { _ = try? await m.send(OutgoingMail(to: previous, subject: r.subject, html: r.html, text: r.text)) }
+            }
+            return true
+        } catch let e as VerificationError { configMessage = e.userMessage; return false }
+        catch { configMessage = "Verification failed."; return false }
     }
-
-    var emailConfigured: Bool { settings.emailEnabled && api?.isEnrolled == true }
 
     // MARK: Login item
     func setLaunchAtLogin(_ on: Bool) {

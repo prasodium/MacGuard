@@ -35,7 +35,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var disconnectDelay: TimeInterval = 1
     public var autoScreenLock = true
     public var emailEnabled = false
-    public var backendURL = ""
+    /// Sender shown on alert emails; must be a sender verified in the Brevo account.
+    public var senderEmail = ""
+    /// Verified address that receives alerts (set only after the emailed code is confirmed).
     public var recipientEmail = ""
     public var followUpMode: FollowUpMode = .oneFollowUp
     public var followUpInterval: TimeInterval = 600
@@ -62,7 +64,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         disconnectDelay = try c.decodeIfPresent(type(of: d.disconnectDelay).self, forKey: .disconnectDelay) ?? d.disconnectDelay
         autoScreenLock = try c.decodeIfPresent(type(of: d.autoScreenLock).self, forKey: .autoScreenLock) ?? d.autoScreenLock
         emailEnabled = try c.decodeIfPresent(type(of: d.emailEnabled).self, forKey: .emailEnabled) ?? d.emailEnabled
-        backendURL = try c.decodeIfPresent(type(of: d.backendURL).self, forKey: .backendURL) ?? d.backendURL
+        senderEmail = try c.decodeIfPresent(type(of: d.senderEmail).self, forKey: .senderEmail) ?? d.senderEmail
         recipientEmail = try c.decodeIfPresent(type(of: d.recipientEmail).self, forKey: .recipientEmail) ?? d.recipientEmail
         followUpMode = try c.decodeIfPresent(type(of: d.followUpMode).self, forKey: .followUpMode) ?? d.followUpMode
         followUpInterval = try c.decodeIfPresent(type(of: d.followUpInterval).self, forKey: .followUpInterval) ?? d.followUpInterval

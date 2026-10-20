@@ -102,7 +102,7 @@ struct DashboardView: View {
             StatCard(title: "Monitoring", value: c.health.level.rawValue.capitalized, symbol: "waveform.path.ecg")
             StatCard(title: "Location permission", value: c.locationProvider.authorization.rawValue, symbol: "location")
             StatCard(title: "Last location fix", value: c.lastLocation.map { $0.acquiredAt.formatted(date: .abbreviated, time: .shortened) + " (±\(Int($0.horizontalAccuracy ?? 0)) m)" } ?? "None", symbol: "mappin.and.ellipse")
-            StatCard(title: "Email", value: c.emailConfigured ? "Configured" : (c.settings.emailEnabled ? "Not enrolled" : "Off"), symbol: "envelope")
+            StatCard(title: "Email", value: c.emailConfigured ? "Ready" : (c.settings.emailEnabled ? "Needs setup" : "Off"), symbol: "envelope")
             StatCard(title: "Last event", value: c.events.first.map { "\($0.type.title) — \($0.timestamp.formatted(date: .omitted, time: .shortened))" } ?? "No events yet", symbol: "clock")
             StatCard(title: "Notification", value: c.incident.map { $0.notification.rawValue } ?? c.emailStatus, symbol: "paperplane")
         }

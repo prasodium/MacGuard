@@ -57,27 +57,6 @@ public struct StatusPayload: Codable, Equatable, Sendable {
     public var timestamp: Date
 }
 
-/// What the backend reports about its own delivery configuration (never contains keys).
-public struct BackendInfo: Equatable, Sendable {
-    public var provider: String      // brevo | resend | console
-    public var fromEmail: String?    // masked sender, e.g. s***@example.com
-    public var recipient: String?    // masked, e.g. o***@gmail.com; nil until one is verified
-    public var recipientVerified: Bool
-    public var pendingRecipient: String?  // address awaiting its emailed code
-    public init(provider: String, fromEmail: String? = nil, recipient: String? = nil, recipientVerified: Bool = false, pendingRecipient: String? = nil) {
-        self.provider = provider; self.fromEmail = fromEmail; self.recipient = recipient
-        self.recipientVerified = recipientVerified; self.pendingRecipient = pendingRecipient
-    }
-    public var providerTitle: String {
-        switch provider {
-        case "brevo": return "Brevo"
-        case "resend": return "Resend"
-        case "console": return "Console (development only — nothing is emailed)"
-        default: return provider
-        }
-    }
-}
-
 public protocol IncidentNotifying: Sendable {
     func submitInitial(_ incident: Incident, device: DeviceInfo) async
     func submitLocation(_ incident: Incident, sequence: Int, monitoring: String, followUp: Bool) async
@@ -86,21 +65,23 @@ public protocol IncidentNotifying: Sendable {
     func flush() async
 }
 
-/// Queues alerts in the local outbox and delivers them with bounded exponential backoff.
-/// "accepted" means the backend accepted the provider request; inbox delivery is NOT confirmed.
+/// Queues alerts in the local outbox and sends them straight to Brevo with bounded exponential backoff.
+/// "accepted" means Brevo accepted the message; inbox delivery is NOT confirmed.
 public actor TheftNotificationService: IncidentNotifying {
-    private let api: AlertAPI
+    private let mailer: MailSending
     private let store: SecurityEventStore
+    private let recipient: @Sendable () -> String?
     private let sleeper: @Sendable (TimeInterval) async -> Void
     private let retryDelays: [TimeInterval]
     private let maxAttemptsPerFlush: Int
     private var flushing = false
     public var onStatus: (@Sendable (UUID, NotificationStatus, String) -> Void)?
 
-    public init(api: AlertAPI, store: SecurityEventStore,
+    public init(mailer: MailSending, store: SecurityEventStore, recipient: @escaping @Sendable () -> String?,
                 retryDelays: [TimeInterval] = [2, 4, 8, 16, 32],
                 sleeper: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
-        self.api = api; self.store = store; self.retryDelays = retryDelays; self.sleeper = sleeper
+        self.mailer = mailer; self.store = store; self.recipient = recipient
+        self.retryDelays = retryDelays; self.sleeper = sleeper
         self.maxAttemptsPerFlush = retryDelays.count + 1
     }
 
@@ -118,6 +99,7 @@ public actor TheftNotificationService: IncidentNotifying {
 
     private func enqueue<T: Encodable>(id: String, incident: UUID, kind: String, _ body: T) {
         guard let data = try? JSONEncoder.iso.encode(body) else { return }
+        // INSERT OR IGNORE on the id: the same incident/sequence is never queued (or emailed) twice.
         try? store.enqueue(OutboxItem(id: id, incidentID: incident, kind: kind, payload: data, attempts: 0,
                                       nextAttempt: Date(), state: "pending", lastError: nil))
     }
@@ -144,50 +126,20 @@ public actor TheftNotificationService: IncidentNotifying {
         await flush()
     }
 
+    /// Sends one test message to the verified address. Not queued, not a theft incident.
     public func sendTest(device: DeviceInfo) async -> Result<String, APIError> {
-        let inc = Incident(kind: .test, batteryPercent: nil)
-        let body = (try? JSONEncoder.iso.encode(Self.payload(for: inc, device: device))) ?? Data()
-        do {
-            let r = try await api.post(path: "/v1/test-email", body: body)
-            return .success((r.json?["providerId"] as? String) ?? "accepted")
-        } catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
-    }
-
-    /// Asks the signed `/v1/info` endpoint which delivery method and (masked) recipient the backend uses.
-    public func fetchBackendInfo() async -> Result<BackendInfo, APIError> {
-        do {
-            let r = try await api.post(path: "/v1/info", body: Data("{}".utf8))
-            guard let j = r.json, let p = j["provider"] as? String else { return .failure(.http(status: r.status, code: "bad_response")) }
-            return .success(BackendInfo(provider: p, fromEmail: j["fromEmail"] as? String, recipient: j["recipient"] as? String,
-                                        recipientVerified: (j["recipientVerified"] as? Bool) ?? false,
-                                        pendingRecipient: j["pendingRecipient"] as? String))
-        } catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
-    }
-
-    private func configCall(_ path: String, _ body: [String: String]) async -> Result<[String: Any], APIError> {
-        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.invalidURL) }
-        do { return .success(try await api.post(path: path, body: data).json ?? [:]) }
+        guard let to = recipient() else { return .failure(.noRecipient) }
+        let r = EmailTemplates.incident(Self.payload(for: Incident(kind: .test), device: device))
+        do { return .success(try await mailer.send(OutgoingMail(to: to, subject: r.subject, html: r.html, text: r.text))) }
         catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
     }
 
-    /// Sends the provider key ONCE over the signed HTTPS channel; the backend verifies and keeps it. It is never stored on this Mac.
-    public func saveProvider(_ provider: String, apiKey: String, fromEmail: String) async -> Result<Void, APIError> {
-        await configCall("/v1/config/provider", ["provider": provider, "apiKey": apiKey, "fromEmail": fromEmail]).map { _ in () }
-    }
-    /// Asks the backend to email a 6-digit code to `email`. Alerts go there only after `confirmRecipient`.
-    public func requestRecipientCode(email: String) async -> Result<Void, APIError> {
-        await configCall("/v1/config/recipient/request", ["email": email]).map { _ in () }
-    }
-    public func confirmRecipient(email: String, code: String) async -> Result<Void, APIError> {
-        await configCall("/v1/config/recipient/confirm", ["email": email, "code": code]).map { _ in () }
-    }
-
-    private func path(for item: OutboxItem) -> String {
-        let id = item.incidentID.uuidString.lowercased()
+    private func render(_ item: OutboxItem) throws -> EmailTemplates.Rendered {
+        let d = JSONDecoder.iso
         switch item.kind {
-        case "location": return "/v1/incidents/\(id)/location"
-        case "status": return "/v1/incidents/\(id)/status"
-        default: return "/v1/incidents"
+        case "location": return EmailTemplates.location(try d.decode(LocationUpdatePayload.self, from: item.payload))
+        case "status": return EmailTemplates.status(try d.decode(StatusPayload.self, from: item.payload))
+        default: return EmailTemplates.incident(try d.decode(IncidentPayload.self, from: item.payload))
         }
     }
 
@@ -197,14 +149,22 @@ public actor TheftNotificationService: IncidentNotifying {
         flushing = true; defer { flushing = false }
         guard let items = try? store.outbox(state: "pending") else { return }
         for item in items where item.nextAttempt <= Date() {
-            var attempts = item.attempts
-            var sessionAttempts = 0
+            guard let mail = try? render(item) else {
+                try? store.updateOutbox(id: item.id, state: "failed", attempts: item.attempts, next: Date(), error: "Unreadable queued alert")
+                continue
+            }
+            guard let to = recipient() else {   // keep the alert; it is sent as soon as an address is verified
+                try? store.updateOutbox(id: item.id, state: "pending", attempts: item.attempts, next: Date().addingTimeInterval(60), error: APIError.noRecipient.userMessage)
+                onStatus?(item.incidentID, .failed, APIError.noRecipient.userMessage)
+                continue
+            }
+            var attempts = item.attempts, sessionAttempts = 0
             while true {
                 attempts += 1; sessionAttempts += 1
                 do {
-                    let r = try await api.post(path: path(for: item), body: item.payload)
+                    _ = try await mailer.send(OutgoingMail(to: to, subject: mail.subject, html: mail.html, text: mail.text))
                     try? store.updateOutbox(id: item.id, state: "accepted", attempts: attempts, next: Date(), error: nil)
-                    onStatus?(item.incidentID, .accepted, (r.json?["status"] as? String) ?? "accepted")
+                    onStatus?(item.incidentID, .accepted, "Accepted by Brevo")
                     break
                 } catch let e as APIError {
                     if e.isRetryable && sessionAttempts < maxAttemptsPerFlush {

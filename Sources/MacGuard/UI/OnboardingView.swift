@@ -57,8 +57,8 @@ struct OnboardingView: View {
         case 5:
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Send email alerts", isOn: Binding(get: { c.settings.emailEnabled }, set: { c.settings.emailEnabled = $0; c.buildNotifier() }))
-                TextField("Backend URL (https://…)", text: Binding(get: { c.settings.backendURL }, set: { c.settings.backendURL = $0 }))
-                Text("Finish email setup in Settings → Email.").font(.caption).foregroundStyle(.secondary)
+                Text("Add your Brevo key and verify your Gmail in Settings → Email.").font(.caption).foregroundStyle(.secondary)
+                Button("Open Settings") { openSettingsWindow() }
             }
         case 6:
             VStack(alignment: .leading) {

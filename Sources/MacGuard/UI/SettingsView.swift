@@ -23,7 +23,6 @@ private struct ActionRow<Content: View>: View {
 
 struct SettingsView: View {
     @EnvironmentObject var c: AppCoordinator
-    @Local private var token = ""
     @Local private var brevoKey = ""
     @Local private var brevoFrom = ""
     @Local private var gmail = ""
@@ -93,43 +92,30 @@ struct SettingsView: View {
         Form {
             Section("Status") {
                 Toggle("Send email alerts", isOn: s.emailEnabled).onChange(of: c.settings.emailEnabled) { _ in c.buildNotifier() }
-                if let i = c.backendInfo {
-                    LabeledContent("Sending with", value: i.providerTitle)
-                    LabeledContent("Sender", value: i.fromEmail ?? "Not set")
-                    LabeledContent("Alert address", value: i.recipient.map { i.recipientVerified ? "\($0)  ✓" : $0 } ?? "Not set")
-                } else {
-                    LabeledContent("Backend", value: c.backendInfoError ?? "Not connected")
-                }
-                ActionRow {
-                    Button("Check connection") { Task { await c.refreshBackendInfo() } }
-                    Button("Send test email") { Task { await c.testEmail() } }
-                        .disabled(c.backendInfo?.recipientVerified == false)
-                }
-            }
-
-            Section("Backend") {
-                TextField("URL", text: s.backendURL, prompt: Text("https://…"))
-                SecureField("Enrollment token", text: $token)
-                ActionRow { Button("Enroll") { Task { await c.enroll(token: token); token = "" } }.disabled(token.isEmpty) }
+                LabeledContent("Brevo key", value: c.keySaved ? "Saved ✓" : "Not saved")
+                LabeledContent("Sender", value: c.settings.senderEmail.isEmpty ? "Not set" : c.settings.senderEmail)
+                LabeledContent("Alert address", value: c.settings.recipientEmail.isEmpty ? "Not verified" : "\(c.settings.recipientEmail) ✓")
+                ActionRow { Button("Send test email") { Task { await c.testEmail() } }.disabled(!c.emailConfigured) }
             }
 
             Section("Brevo") {
-                SecureField("API key", text: $brevoKey).help("Sent once to your backend and kept there. Never stored on this Mac.")
+                SecureField("API key", text: $brevoKey).help("Stored in your Mac's Keychain only.")
                 TextField("Sender", text: $brevoFrom, prompt: Text("Address verified in Brevo"))
                 ActionRow {
                     Button("Get a key…") { NSWorkspace.shared.open(URL(string: "https://app.brevo.com/settings/keys/api")!) }
-                    Button("Save") { Task { if await c.saveBrevo(apiKey: brevoKey, fromEmail: brevoFrom) { brevoKey = "" } } }
+                    if c.keySaved { Button("Remove key", role: .destructive) { Task { await c.removeBrevoKey() } } }
+                    Button("Save") { Task { if await c.saveBrevo(apiKey: brevoKey, sender: brevoFrom) { brevoKey = "" } } }
                         .disabled(brevoKey.count < 10 || !brevoFrom.contains("@"))
                 }
             }
 
             Section("Gmail for alerts") {
                 TextField("Address", text: $gmail, prompt: Text("you@gmail.com"))
-                ActionRow { Button("Send code") { Task { await c.sendVerificationCode(to: gmail) } }.disabled(!gmail.contains("@")) }
-                if let p = c.backendInfo?.pendingRecipient { LabeledContent("Code sent to", value: p) }
+                ActionRow { Button("Send code") { Task { await c.sendVerificationCode(to: gmail) } }.disabled(!gmail.contains("@") || !c.keySaved) }
+                if let p = c.pendingRecipient { LabeledContent("Code sent to", value: p) }
                 TextField("Code", text: $code, prompt: Text("6 digits")).help("Alerts only go to an address after its code is verified.")
                 ActionRow {
-                    Button("Verify") { Task { if await c.confirmRecipient(email: gmail, code: code) { code = "" } } }
+                    Button("Verify") { if c.confirmRecipient(email: gmail, code: code) { code = "" } }
                         .disabled(code.count != 6 || !gmail.contains("@"))
                 }
             }
@@ -148,7 +134,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .task { if c.backendInfo == nil, c.api?.isEnrolled == true { await c.refreshBackendInfo() } }
+        .onAppear { if brevoFrom.isEmpty { brevoFrom = c.settings.senderEmail } }
     }
 
     // MARK: Location
