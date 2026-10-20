@@ -50,7 +50,7 @@ final class CapturingTransport: HTTPTransport, @unchecked Sendable {
     }
     @Test func sourceContainsNoEmbeddedProviderSecrets() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let patterns = ["re_[A-Za-z0-9]{20,}", "sk_live", "RESEND_API_KEY", "api.resend.com"]
+        let patterns = ["re_[A-Za-z0-9]{20,}", "xkeysib-[A-Za-z0-9-]{20,}", "sk_live", "api\\.resend\\.com", "api\\.brevo\\.com"] // real key shapes, and no direct provider calls from the client
         let e = FileManager.default.enumerator(at: root.appendingPathComponent("Sources"), includingPropertiesForKeys: nil)!
         for case let url as URL in e where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)

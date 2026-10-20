@@ -57,6 +57,34 @@ enum SelfCheck {
                     report("e2e-enroll", api.isEnrolled, "enrolled=\(api.isEnrolled)")
                     guard let store = try? SecurityEventStore(path: nil) else { sem.signal(); return }
                     let n = TheftNotificationService(api: api, store: store)
+                    if let li = CommandLine.arguments.firstIndex(of: "--mail-log"), CommandLine.arguments.count > li + 1 {
+                        let logPath = CommandLine.arguments[li + 1]
+                        func lastMail() -> [String: Any]? {
+                            guard let t = try? String(contentsOfFile: logPath, encoding: .utf8), let l = t.split(separator: "\n").last else { return nil }
+                            return (try? JSONSerialization.jsonObject(with: Data(l.utf8))) as? [String: Any]
+                        }
+                        let me = "owner.e2e@gmail.com"
+                        let bad = await n.saveProvider("brevo", apiKey: "xkeysib-WRONG-key-12345", fromEmail: "sender@example.com")
+                        if case .failure(let e) = bad { report("e2e-wrong-brevo-key-rejected", e.userMessage.contains("rejected"), e.userMessage) } else { report("e2e-wrong-brevo-key-rejected", false, "accepted a bad key") }
+                        let saved = await n.saveProvider("brevo", apiKey: "xkeysib-e2e-test-key-123", fromEmail: "sender@example.com")
+                        report("e2e-save-brevo-key", { if case .success = saved { return true } else { return false } }(), "")
+                        let before: Result<Void, APIError> = await n.requestRecipientCode(email: me)
+                        report("e2e-request-code", { if case .success = before { return true } else { return false } }(), "")
+                        if case .success(let i0) = await n.fetchBackendInfo() { report("e2e-unverified-until-code", i0.pendingRecipient != nil && !i0.recipientVerified, "pending=\(i0.pendingRecipient ?? "-") verified=\(i0.recipientVerified)") }
+                        let denied = await n.sendTest(device: dev)
+                        if case .failure(let e) = denied { report("e2e-no-alert-before-verification", e == .http(status: 409, code: "no_verified_recipient"), e.userMessage) } else { report("e2e-no-alert-before-verification", false, "sent to unverified address") }
+                        let code = ((lastMail()?["textContent"] as? String) ?? "").components(separatedBy: " ").first(where: { $0.count == 7 && $0.hasSuffix(".") })?.dropLast() ?? ""
+                        let wrong = await n.confirmRecipient(email: me, code: code == "000000" ? "111111" : "000000")
+                        if case .failure = wrong { report("e2e-wrong-code-rejected", true, "") } else { report("e2e-wrong-code-rejected", false, "") }
+                        let good = await n.confirmRecipient(email: me, code: String(code))
+                        report("e2e-correct-code-verifies", { if case .success = good { return true } else { return false } }(), "code length \(code.count)")
+                        if case .success(let i1) = await n.fetchBackendInfo() { report("e2e-info-verified", i1.recipientVerified && i1.recipient == "o***@gmail.com", "recipient=\(i1.recipient ?? "-")") }
+                        let t = await n.sendTest(device: dev)
+                        let to = ((lastMail()?["to"] as? [[String: Any]])?.first?["email"] as? String) ?? ""
+                        report("e2e-alert-goes-to-verified-address", { if case .success = t { return true } else { return false } }() && to == me, "to=\(to)")
+                        sem.signal(); return
+                    }
+                    if case .success(let i) = await n.fetchBackendInfo() { report("e2e-backend-info", true, "provider=\(i.provider) recipient=\(i.recipient ?? "none")") } else { report("e2e-backend-info", false, "failed") }
                     if case .success(let id) = await n.sendTest(device: dev) { report("e2e-test-email", true, "provider id \(id)") } else { report("e2e-test-email", false, "failed") }
                     var inc = Incident(batteryPercent: 77); inc.alarm = .succeeded; inc.screenLock = .requestedUnverified
                     inc.locationOutcome = .acquired

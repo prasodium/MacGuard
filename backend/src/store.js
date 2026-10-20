@@ -8,8 +8,9 @@ export class Store {
     this.dir = dir;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.file = path.join(dir, 'state.json');
-    this.state = { installations: {}, tokens: {}, sent: {} };
+    this.state = { installations: {}, tokens: {}, sent: {}, settings: { provider: null, recipient: null, pending: null } };
     if (fs.existsSync(this.file)) this.state = { ...this.state, ...JSON.parse(fs.readFileSync(this.file, 'utf8')) };
+    this.state.settings ??= { provider: null, recipient: null, pending: null };
     this.nonces = new Map(); // in-memory; bounded by the timestamp window
   }
   save() {
@@ -38,6 +39,10 @@ export class Store {
     if (this.nonces.has(key)) return false;
     this.nonces.set(key, now); return true;
   }
+  get settings() { return this.state.settings; }
+  setProvider(p) { this.state.settings.provider = p; this.save(); }
+  setPending(p) { this.state.settings.pending = p; this.save(); }
+  setRecipient(r) { this.state.settings.recipient = r; this.state.settings.pending = null; this.save(); }
   /** Idempotency: returns the earlier result for a key, if any. */
   getSent(key) { return Object.hasOwn(this.state.sent, key) ? this.state.sent[key] : null; }
   markSent(key, result) { this.state.sent[key] = result; this.save(); }

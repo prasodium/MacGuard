@@ -57,6 +57,27 @@ public struct StatusPayload: Codable, Equatable, Sendable {
     public var timestamp: Date
 }
 
+/// What the backend reports about its own delivery configuration (never contains keys).
+public struct BackendInfo: Equatable, Sendable {
+    public var provider: String      // brevo | resend | console
+    public var fromEmail: String?    // masked sender, e.g. s***@example.com
+    public var recipient: String?    // masked, e.g. o***@gmail.com; nil until one is verified
+    public var recipientVerified: Bool
+    public var pendingRecipient: String?  // address awaiting its emailed code
+    public init(provider: String, fromEmail: String? = nil, recipient: String? = nil, recipientVerified: Bool = false, pendingRecipient: String? = nil) {
+        self.provider = provider; self.fromEmail = fromEmail; self.recipient = recipient
+        self.recipientVerified = recipientVerified; self.pendingRecipient = pendingRecipient
+    }
+    public var providerTitle: String {
+        switch provider {
+        case "brevo": return "Brevo"
+        case "resend": return "Resend"
+        case "console": return "Console (development only — nothing is emailed)"
+        default: return provider
+        }
+    }
+}
+
 public protocol IncidentNotifying: Sendable {
     func submitInitial(_ incident: Incident, device: DeviceInfo) async
     func submitLocation(_ incident: Incident, sequence: Int, monitoring: String, followUp: Bool) async
@@ -130,6 +151,35 @@ public actor TheftNotificationService: IncidentNotifying {
             let r = try await api.post(path: "/v1/test-email", body: body)
             return .success((r.json?["providerId"] as? String) ?? "accepted")
         } catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
+    }
+
+    /// Asks the signed `/v1/info` endpoint which delivery method and (masked) recipient the backend uses.
+    public func fetchBackendInfo() async -> Result<BackendInfo, APIError> {
+        do {
+            let r = try await api.post(path: "/v1/info", body: Data("{}".utf8))
+            guard let j = r.json, let p = j["provider"] as? String else { return .failure(.http(status: r.status, code: "bad_response")) }
+            return .success(BackendInfo(provider: p, fromEmail: j["fromEmail"] as? String, recipient: j["recipient"] as? String,
+                                        recipientVerified: (j["recipientVerified"] as? Bool) ?? false,
+                                        pendingRecipient: j["pendingRecipient"] as? String))
+        } catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
+    }
+
+    private func configCall(_ path: String, _ body: [String: String]) async -> Result<[String: Any], APIError> {
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.invalidURL) }
+        do { return .success(try await api.post(path: path, body: data).json ?? [:]) }
+        catch let e as APIError { return .failure(e) } catch { return .failure(.network) }
+    }
+
+    /// Sends the provider key ONCE over the signed HTTPS channel; the backend verifies and keeps it. It is never stored on this Mac.
+    public func saveProvider(_ provider: String, apiKey: String, fromEmail: String) async -> Result<Void, APIError> {
+        await configCall("/v1/config/provider", ["provider": provider, "apiKey": apiKey, "fromEmail": fromEmail]).map { _ in () }
+    }
+    /// Asks the backend to email a 6-digit code to `email`. Alerts go there only after `confirmRecipient`.
+    public func requestRecipientCode(email: String) async -> Result<Void, APIError> {
+        await configCall("/v1/config/recipient/request", ["email": email]).map { _ in () }
+    }
+    public func confirmRecipient(email: String, code: String) async -> Result<Void, APIError> {
+        await configCall("/v1/config/recipient/confirm", ["email": email, "code": code]).map { _ in () }
     }
 
     private func path(for item: OutboxItem) -> String {

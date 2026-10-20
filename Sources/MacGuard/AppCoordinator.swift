@@ -30,6 +30,9 @@ final class AppCoordinator: ObservableObject {
     @Published var armPrompt = false
     @Published var armError: String?
     @Published var emailStatus = "Not tested"
+    @Published var backendInfo: BackendInfo?
+    @Published var backendInfoError: String?
+    @Published var configMessage: String?
     @Published var lastLocation: LocationRecord?
     @Published var busy: String?
     @Published var showOnboarding = false
@@ -265,8 +268,55 @@ final class AppCoordinator: ObservableObject {
         buildNotifier()
         guard let api else { emailStatus = "Enter a valid backend URL first."; return }
         busy = "Enrolling…"; defer { busy = nil }
-        do { try await api.enroll(token: token, deviceName: device.name); emailStatus = "Enrolled with the alert backend." }
+        do { try await api.enroll(token: token, deviceName: device.name); emailStatus = "Enrolled with the alert backend."; await refreshBackendInfo() }
         catch let e as APIError { emailStatus = e.userMessage } catch { emailStatus = "Enrollment failed." }
+    }
+
+    func refreshBackendInfo() async {
+        backendInfo = nil; backendInfoError = nil
+        guard let n = notifier else { backendInfoError = "Turn on email alerts and enter the backend URL first."; return }
+        guard api?.isEnrolled == true else { backendInfoError = "This Mac is not enrolled yet. Enter an enrollment token."; return }
+        busy = "Checking backend…"; defer { busy = nil }
+        switch await n.fetchBackendInfo() {
+        case .success(let i): backendInfo = i
+        case .failure(let e): backendInfoError = e.userMessage
+        }
+    }
+
+    // MARK: In-app email configuration (each change needs owner authentication)
+    /// Sends the Brevo key to the backend once; nothing is kept on this Mac.
+    func saveBrevo(apiKey: String, fromEmail: String) async -> Bool {
+        configMessage = nil
+        guard let n = notifier, api?.isEnrolled == true else { configMessage = "Enroll this Mac with your backend first."; return false }
+        guard await auth.authenticate(reason: "Save the Brevo email key for MacGuard") else { configMessage = "Authentication was not completed."; return false }
+        busy = "Saving key…"; defer { busy = nil }
+        switch await n.saveProvider("brevo", apiKey: apiKey, fromEmail: fromEmail) {
+        case .success: configMessage = "Brevo key verified and saved on your backend."; await refreshBackendInfo(); return true
+        case .failure(let e): configMessage = e.userMessage; return false
+        }
+    }
+
+    func sendVerificationCode(to email: String) async {
+        configMessage = nil
+        guard let n = notifier, api?.isEnrolled == true else { configMessage = "Enroll this Mac with your backend first."; return }
+        guard await auth.authenticate(reason: "Change the MacGuard alert email address") else { configMessage = "Authentication was not completed."; return }
+        busy = "Sending code…"; defer { busy = nil }
+        switch await n.requestRecipientCode(email: email) {
+        case .success: configMessage = "A 6-digit code was emailed to \(email). Enter it below. Alerts do not go there until it is verified."; await refreshBackendInfo()
+        case .failure(let e): configMessage = e.userMessage
+        }
+    }
+
+    func confirmRecipient(email: String, code: String) async -> Bool {
+        guard let n = notifier else { return false }
+        busy = "Verifying…"; defer { busy = nil }
+        switch await n.confirmRecipient(email: email, code: code) {
+        case .success:
+            configMessage = "Verified. Alert emails will now go to \(email)."
+            log(.testEvent, "Alert recipient verified and changed", test: true)
+            await refreshBackendInfo(); return true
+        case .failure(let e): configMessage = e.userMessage; return false
+        }
     }
 
     var emailConfigured: Bool { settings.emailEnabled && api?.isEnrolled == true }

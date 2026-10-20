@@ -82,3 +82,19 @@ export function validateEnroll(b) {
     secret, deviceName: optStr(b.deviceName, 'deviceName', 64) ?? 'Mac',
   };
 }
+
+const EMAIL = /^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,190}\.[^\s@<>"',;]{2,24}$/;
+const email = (v, name) => { if (typeof v !== 'string' || v.length > 254 || !EMAIL.test(v)) fail(`${name} invalid`); return v.trim().toLowerCase(); };
+
+export function validateProviderConfig(b) {
+  if (!b || typeof b !== 'object') fail('body');
+  const apiKey = str(b.apiKey, 'apiKey', 200);
+  if (apiKey.length < 10 || /\s/.test(apiKey)) fail('apiKey invalid');
+  return { provider: oneOf(b.provider, new Set(['brevo', 'resend']), 'provider'), apiKey, fromEmail: email(b.fromEmail, 'fromEmail') };
+}
+export function validateRecipientRequest(b) { if (!b || typeof b !== 'object') fail('body'); return { email: email(b.email, 'email') }; }
+export function validateRecipientConfirm(b) {
+  if (!b || typeof b !== 'object') fail('body');
+  const code = str(b.code, 'code', 6); if (!/^\d{6}$/.test(code)) fail('code invalid');
+  return { email: email(b.email, 'email'), code };
+}

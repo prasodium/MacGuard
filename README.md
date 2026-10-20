@@ -13,8 +13,9 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Alarm (repeat, volume boost, preview, authenticated stop) | Implemented; playback start verified on hardware, **audibility/muted-speaker cases untested** |
 | Screen lock (private `SACLockScreenImmediate`, fallback `pmset displaysleepnow`, verified via CGSession) | Implemented; **verified on a real Mac (macOS 27.0.1): session reported locked**. Not tested on other macOS versions |
 | Location (Core Location, timeout, cache/last-known, validation) | Implemented, unit-tested with mocks; **real fix & permission flow awaiting hardware validation** |
-| Email backend (Node, HMAC auth, replay/rate-limit, idempotency, Resend provider, HTML+text) | Implemented, 15 tests; Swift client ↔ backend verified end-to-end with the console provider. **Real Resend delivery NOT verified** (no API key available during development) |
+| Email backend (Node, HMAC auth, replay/rate-limit, idempotency, Brevo + Resend + console providers, HTML+text) | Implemented, 26 tests; in-app Brevo key + verified-recipient flow verified end to end against a fake Brevo (`scripts/e2e.sh`); Swift client ↔ backend verified end-to-end with the console provider. **Real Brevo/Resend delivery NOT verified** (no API key available during development; request shapes follow each provider's documented HTTP API) |
 | Retry/outbox/offline queue, follow-ups | Implemented, unit-tested |
+| In-app Brevo key + Gmail verification | Implemented and integration-tested against a **fake** Brevo; **not yet run against real Brevo** |
 | Dashboard, Settings, History, 9-step onboarding, Find My guide, menu bar | Implemented; launch smoke-tested, **not visually reviewed or VoiceOver-audited** |
 | Login item (`SMAppService`), restore-after-restart, sleep/wake handling | Implemented; **not hardware-tested** |
 | `.xcodeproj` | **Not provided** – Xcode isn't installed on the dev machine; the project is a Swift package + `scripts/build_app.sh` (open `Package.swift` in Xcode to get a project) |
@@ -86,13 +87,21 @@ No Accessibility, Full Disk Access, or admin rights are requested. No privileged
 See [DEPLOYMENT.md](DEPLOYMENT.md). Summary:
 ```bash
 cd backend
-export OWNER_EMAIL=you@example.com FROM_EMAIL="MacGuard <alerts@yourdomain.com>" RESEND_API_KEY=re_xxx
+export EMAIL_PROVIDER=brevo BREVO_API_KEY=xkeysib-xxx OWNER_EMAIL=you@example.com FROM_EMAIL="MacGuard <you@example.com>"   # FROM must be your verified Brevo sender
 npm run issue-token      # prints a single-use enrollment token
 npm start
 ```
 In the app: Settings → Email → enter the HTTPS backend URL and token → Enroll → Send test email.
 
-Backend env vars: `OWNER_EMAIL`, `FROM_EMAIL`, `RESEND_API_KEY`, `EMAIL_PROVIDER` (`resend`|`console`), `PORT`, `DATA_DIR`, `MAX_BODY_BYTES`, `CLOCK_SKEW_SECONDS`, `RATE_LIMIT_PER_MINUTE`, `ENROLL_RATE_LIMIT_PER_HOUR`.
+**Email** uses **Brevo** by default (free tier, no owned domain; the same method as the author's helper-store project). Everything can be configured from **Settings → Email**:
+1. enroll this Mac with your backend;
+2. paste your **Brevo API key** and verified sender address. The key is sent once over signed HTTPS, the backend checks it with Brevo and keeps it, and it is **never stored on this Mac** (a stolen Mac must not hold your email key);
+3. enter your **Gmail** (any address works) and press *Send verification code*. Alerts go to it **only after you enter the 6-digit code emailed to it**; changing it needs Touch ID/password and notifies the previous address;
+4. *Check connection* / *Send test email*.
+
+Operators can instead set env vars on the backend (`EMAIL_PROVIDER` = `brevo`|`resend`|`console`, keys, `OWNER_EMAIL` as a trusted bootstrap recipient). Resend and console remain available that way.
+
+Backend env vars (all optional if you configure from the app): `OWNER_EMAIL`, `FROM_EMAIL`, `BREVO_API_KEY`, `CONFIG_RATE_LIMIT_PER_HOUR`, `BREVO_API_BASE` (tests only), `RESEND_API_KEY`, `EMAIL_PROVIDER` (`brevo`|`resend`|`console`), `PORT`, `DATA_DIR`, `MAX_BODY_BYTES`, `CLOCK_SKEW_SECONDS`, `RATE_LIMIT_PER_MINUTE`, `ENROLL_RATE_LIMIT_PER_HOUR`.
 
 ## Limitations
 - **Charger monitoring:** only detects changes while MacGuard runs. Process death, shutdown, or full power loss go unnoticed; a gap is logged on next start but never converted into a theft event. A Mac unplugged *while asleep* is treated as a real disconnection on wake.

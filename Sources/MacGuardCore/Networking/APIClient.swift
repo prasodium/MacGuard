@@ -18,6 +18,14 @@ public enum APIError: Error, Equatable {
         case .network: return "Network unavailable."
         case .timeout: return "The alert backend did not respond in time."
         case .http(let s, let c):
+            switch c {
+            case "provider_key_rejected": return "Brevo rejected that API key. Copy a fresh key from your Brevo account."
+            case "code_invalid": return "That code is wrong, expired, or was tried too many times. Request a new code."
+            case "no_verified_recipient": return "No verified alert email yet. Verify your Gmail address in Settings → Email."
+            case "provider_not_configured": return "No email provider key is set yet. Add your Brevo key in Settings → Email."
+            case "rate_limited": return "Too many requests. Wait a little and try again."
+            default: break
+            }
             switch s {
             case 401, 403: return "The backend rejected this Mac's credentials. Re-enroll in Settings."
             case 400, 422: return "The backend rejected the alert data (\(c ?? "invalid"))."

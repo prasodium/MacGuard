@@ -4,6 +4,10 @@ import MacGuardCore
 struct SettingsView: View {
     @EnvironmentObject var c: AppCoordinator
     @Local private var token = ""
+    @Local private var brevoKey = ""
+    @Local private var brevoFrom = ""
+    @Local private var gmail = ""
+    @Local private var code = ""
     @Local private var confirmClear: String?
 
     var body: some View {
@@ -14,7 +18,7 @@ struct SettingsView: View {
             locationTab.tabItem { Label("Location", systemImage: "location") }
             privacyTab.tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
-        .frame(width: 560, height: 460).padding()
+        .frame(width: 620, height: 640).padding()
         .confirmationDialog("Are you sure?", isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
             Button("Delete", role: .destructive) {
                 if confirmClear == "locations" { c.clearLocationHistory() } else { c.clearEventLog() }
@@ -53,23 +57,68 @@ struct SettingsView: View {
     }
 
     private var emailTab: some View {
-        Form {
-            Toggle("Send email alerts", isOn: s.emailEnabled).onChange(of: c.settings.emailEnabled) { _ in c.buildNotifier() }
-            TextField("Backend URL (https://…)", text: s.backendURL)
-            SecureField("Enrollment token from your backend", text: $token)
-            HStack {
-                Button("Enroll this Mac") { Task { await c.enroll(token: token); token = "" } }.disabled(token.isEmpty)
-                Button("Send test email") { Task { await c.testEmail() } }
-            }
-            Text(c.emailStatus).font(.caption)
-            Text("The recipient is fixed on the backend by the operator. The app never sees your email password or any email-provider key.").font(.caption).foregroundStyle(.secondary)
-            Picker("Follow-ups", selection: s.followUpMode) { ForEach(FollowUpMode.allCases, id: \.self) { Text($0.title).tag($0) } }
-            if c.settings.followUpMode == .periodic {
-                Stepper("Every \(Int(c.settings.followUpInterval / 60)) min", value: s.followUpInterval, in: 300...3600, step: 300)
-                Stepper("For up to \(Int(c.settings.followUpMaxDuration / 3600)) h", value: s.followUpMaxDuration, in: 3600...86400, step: 3600)
-            }
-            Toggle("Email me when the charger is reconnected or protection is disarmed", isOn: s.sendRecoveryNotice)
+        ScrollView {
+            Form {
+                Toggle("Send email alerts", isOn: s.emailEnabled).onChange(of: c.settings.emailEnabled) { _ in c.buildNotifier() }
+
+                Section("1. Connect this Mac to your backend") {
+                    TextField("Backend URL (https://…)", text: s.backendURL)
+                    SecureField("Enrollment token from your backend", text: $token)
+                    Button("Enroll this Mac") { Task { await c.enroll(token: token); token = "" } }.disabled(token.isEmpty)
+                    Text(c.emailStatus).font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section("2. Email sending service: Brevo") {
+                    if let i = c.backendInfo {
+                        LabeledContent("Sending with", value: i.providerTitle)
+                        LabeledContent("Sender", value: i.fromEmail ?? "not set")
+                    }
+                    SecureField("Brevo API key", text: $brevoKey)
+                    TextField("Sender address verified in Brevo", text: $brevoFrom)
+                    HStack {
+                        Button("Save Brevo key") { Task { if await c.saveBrevo(apiKey: brevoKey, fromEmail: brevoFrom) { brevoKey = "" } } }
+                            .disabled(brevoKey.count < 10 || !brevoFrom.contains("@"))
+                        Button("Get a Brevo key…") { NSWorkspace.shared.open(URL(string: "https://app.brevo.com/settings/keys/api")!) }
+                    }
+                    Text("The key is sent once over HTTPS to your backend, which checks it with Brevo and keeps it. It is not stored on this Mac, so a stolen Mac cannot leak it. Brevo's free plan needs no domain: verify one sender address in your Brevo account first.").font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section("3. Where alerts are sent: your Gmail") {
+                    if let i = c.backendInfo {
+                        LabeledContent("Alert address", value: i.recipient.map { "\($0)" + (i.recipientVerified ? "  ✓ verified" : "") } ?? "none yet")
+                        if let p = i.pendingRecipient { LabeledContent("Waiting for code", value: p) }
+                    }
+                    TextField("Gmail address for alerts", text: $gmail)
+                    Button("Send verification code") { Task { await c.sendVerificationCode(to: gmail) } }.disabled(!gmail.contains("@"))
+                    TextField("6-digit code from the email", text: $code)
+                    Button("Verify address") { Task { if await c.confirmRecipient(email: gmail, code: code) { code = "" } } }
+                        .disabled(code.count != 6 || !gmail.contains("@"))
+                    Text("Alerts are never sent to an address until you enter the code that was emailed to it. Changing the address asks for Touch ID / your password and notifies the previous address.").font(.caption).foregroundStyle(.secondary)
+                }
+
+                if let m = c.configMessage { Text(m).font(.callout).padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 8)) }
+                if let e = c.backendInfoError, c.backendInfo == nil { Text(e).font(.caption).foregroundStyle(.secondary) }
+
+                Section("4. Check it") {
+                    HStack {
+                        Button("Check connection") { Task { await c.refreshBackendInfo() } }
+                        Button("Send test email") { Task { await c.testEmail() } }
+                            .disabled(c.backendInfo != nil && c.backendInfo?.recipientVerified != true)
+                    }
+                    Text("Other providers (Resend, console) are chosen on the backend with EMAIL_PROVIDER; see DEPLOYMENT.md.").font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section("Follow-ups") {
+                    Picker("Follow-ups", selection: s.followUpMode) { ForEach(FollowUpMode.allCases, id: \.self) { Text($0.title).tag($0) } }
+                    if c.settings.followUpMode == .periodic {
+                        Stepper("Every \(Int(c.settings.followUpInterval / 60)) min", value: s.followUpInterval, in: 300...3600, step: 300)
+                        Stepper("For up to \(Int(c.settings.followUpMaxDuration / 3600)) h", value: s.followUpMaxDuration, in: 3600...86400, step: 3600)
+                    }
+                    Toggle("Email me when the charger is reconnected or protection is disarmed", isOn: s.sendRecoveryNotice)
+                }
+            }.formStyle(.grouped)
         }
+        .task { if c.backendInfo == nil, c.api?.isEnrolled == true { await c.refreshBackendInfo() } }
     }
 
     private var locationTab: some View {
