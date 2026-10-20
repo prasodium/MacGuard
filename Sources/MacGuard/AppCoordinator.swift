@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AppKit
 import UserNotifications
 import ServiceManagement
@@ -37,6 +38,7 @@ final class AppCoordinator: ObservableObject {
     @Published var busy: String?
     @Published var showOnboarding = false
 
+    private var cancellables = Set<AnyCancellable>()
     private var sleptAt: Date?
     private var heartbeat: Timer?
     private var restorePending = false
@@ -50,6 +52,9 @@ final class AppCoordinator: ObservableObject {
         alarm = AlarmManager(player: SystemSoundPlayer())
         locationService = LocationService(provider: locationProvider, store: store)
         power = PowerMonitor(confirmDelay: settingsStore.settings.disconnectDelay)
+        // Views observe the coordinator, but settings live in SettingsStore: forward its changes so every
+        // setting (steppers, pickers, toggles) refreshes the UI immediately instead of on the next redraw.
+        settingsStore.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         if store == nil { banner = "Local security log could not be opened; events will not be saved." }
         buildNotifier()
         response = TheftResponseCoordinator(alarm: alarm, locker: ScreenLockService(), location: locationService,

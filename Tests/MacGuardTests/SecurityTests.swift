@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import MacGuardCore
 
 final class CapturingTransport: HTTPTransport, @unchecked Sendable {
@@ -89,5 +90,18 @@ final class CapturingTransport: HTTPTransport, @unchecked Sendable {
         #expect(s.stopAlarmOnReconnect); #expect(s.followUpMode == .oneFollowUp)   // defaults for fields the old data lacks
         let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
         #expect(back == s)
+    }
+
+    @MainActor @Test func settingsStorePublishesEveryChangeAndPersists() throws {
+        let suite = "mg-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults)
+        var fired = 0
+        let sub = store.objectWillChange.sink { fired += 1 }
+        store.settings.eventRetentionDays = 30
+        store.settings.locationRetentionDays = 3
+        #expect(fired == 2)                                  // each edit notifies observers immediately
+        #expect(SettingsStore(defaults: defaults).settings.eventRetentionDays == 30)   // and is saved
+        _ = sub
     }
 }
