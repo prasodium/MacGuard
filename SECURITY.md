@@ -12,7 +12,7 @@
 - **Transport:** client refuses non-HTTPS URLs (HTTP only for localhost in dev); deploy behind TLS.
 - **Owner authentication:** `LocalAuthentication` (`deviceOwnerAuthentication`) gates disarm, alarm stop, and quitting while protected. MacGuard never sees or stores the macOS password and never fakes a login UI. If the Mac has no authentication configured the prompt is skipped so owners are never locked out. An app-level check is weaker than the OS lock and is documented as such.
 - **Local data:** SQLite directory 0700 / file 0600; retention purge; "clear" actions. Not encrypted at rest beyond FileVault (documented trade-off).
-- **No private APIs, no root, no daemons, no anti-termination tricks.**
+- **One private API, documented:** `SACLockScreenImmediate` (login.framework, loaded with `dlopen`/`dlsym`) is used to lock the session because no public API exists. It is called only on a confirmed incident or an explicit test, failure falls back to a public CLI, and success is claimed only after CGSession confirms the lock. Risk: Apple may change/remove it; not App Store compatible. No root, no daemons, no anti-termination tricks.
 
 ## Key lifecycle
 Create: on enroll (client). Rotate/revoke: delete installation from `backend/data/state.json` (or re-enroll — replaces the secret) and "Unenroll" by deleting the Keychain items (`scripts/uninstall.sh`). Rotating the Resend key needs only a backend env change.

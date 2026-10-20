@@ -34,6 +34,13 @@ enum SelfCheck {
 
         let sounds = SystemSoundPlayer.availableSounds.filter { NSSound(named: NSSound.Name($0)) != nil }
         report("alarm-sounds-available", sounds.count == SystemSoundPlayer.availableSounds.count, sounds.joined(separator: ","))
+        if CommandLine.arguments.contains("--lock-test") {
+            // WARNING: really locks this session. Run only when you are ready to type your password.
+            let sem = DispatchSemaphore(value: 0); var result = ActionStatus.notStarted
+            Task { @MainActor in result = await ScreenLockService().lock(); sem.signal() }
+            while sem.wait(timeout: .now()) == .timedOut { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+            report("screen-lock", result == .succeeded, "result=\(result.rawValue)")
+        }
         if CommandLine.arguments.contains("--play") {
             let p = SystemSoundPlayer(); let ok = p.play(named: "Sosumi")
             RunLoop.current.run(until: Date().addingTimeInterval(1.5)); p.stopAll()

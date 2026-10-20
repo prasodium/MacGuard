@@ -11,7 +11,7 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Power detection (IOKit read + change notifications + reconciliation poll, debounce, dedupe) | Implemented. Reading verified on real hardware; **physical unplug/replug NOT yet hardware-tested** |
 | State machine, incidents, event log (SQLite), settings | Implemented, unit-tested |
 | Alarm (repeat, volume boost, preview, authenticated stop) | Implemented; playback start verified on hardware, **audibility/muted-speaker cases untested** |
-| Screen lock (`pmset displaysleepnow`, verified via CGSession) | Implemented; **not executed on hardware** (would lock the dev session) |
+| Screen lock (private `SACLockScreenImmediate`, fallback `pmset displaysleepnow`, verified via CGSession) | Implemented; **verified on a real Mac (macOS 27.0.1): session reported locked**. Not tested on other macOS versions |
 | Location (Core Location, timeout, cache/last-known, validation) | Implemented, unit-tested with mocks; **real fix & permission flow awaiting hardware validation** |
 | Email backend (Node, HMAC auth, replay/rate-limit, idempotency, Resend provider, HTML+text) | Implemented, 15 tests; Swift client ↔ backend verified end-to-end with the console provider. **Real Resend delivery NOT verified** (no API key available during development) |
 | Retry/outbox/offline queue, follow-ups | Implemented, unit-tested |
@@ -78,7 +78,7 @@ Copy `dist/MacGuard.app` to `/Applications`. The first launch of an ad-hoc-signe
 | Location (`NSLocationUsageDescription`, entitlement `…personal-information.location`) | Include position in alerts | Optional; app works without it. Enable in System Settings → Privacy & Security → Location Services |
 | Notifications | Local alarm banner | Optional |
 | Login Items | Start at login | Toggle in Settings; user-approved in System Settings |
-| Screen lock | Requires *Lock Screen → Require password* = immediately | Otherwise the lock request is reported as "unverified" |
+| Screen lock | None | Uses a private macOS call (see Limitations); falls back to display sleep, which locks only if *Require password* is set to immediately |
 
 No Accessibility, Full Disk Access, or admin rights are requested. No privileged daemon is installed.
 
@@ -97,7 +97,7 @@ Backend env vars: `OWNER_EMAIL`, `FROM_EMAIL`, `RESEND_API_KEY`, `EMAIL_PROVIDER
 ## Limitations
 - **Charger monitoring:** only detects changes while MacGuard runs. Process death, shutdown, or full power loss go unnoticed; a gap is logged on next start but never converted into a theft event. A Mac unplugged *while asleep* is treated as a real disconnection on wake.
 - **Alarm:** can be inaudible (muted/headphones/volume), cannot run during sleep/shutdown/force-quit. Always stoppable by the owner.
-- **Screen lock:** protects a running session only; implemented by sleeping the display (no private APIs), reported as *verified* only if macOS reports the session locked.
+- **Screen lock:** protects a running session only. macOS has no public "lock now" API, so MacGuard calls the private `SACLockScreenImmediate` (resolved at runtime; unsuitable for the App Store, may change in future macOS) and falls back to display sleep. Reported as *verified* only if macOS reports the session locked.
 - **Location:** estimate from Wi-Fi/Core Location, needs permission and network; may be stale. Never IP-geolocated, never fabricated. Not continuous tracking.
 - **Email:** "accepted" means the provider accepted the request; inbox delivery is not confirmed. A Mac that never reconnects can't send.
 - **Pre-login:** MacGuard starts after you log in; it can't monitor before login.
@@ -113,7 +113,7 @@ Everything stays on the Mac except what you send to *your* backend/provider on a
 - *"Cannot arm"* — charger unplugged or power unreadable; plug in and check Dashboard → Monitoring.
 - *Location unavailable* — grant permission in System Settings; run **Test Location**. Unsigned dev runs (bare binary) can't get a prompt; use the `.app`.
 - *Email not arriving* — Test Email result is shown on the dashboard; check spam, backend logs, domain verification in Resend. 401 = re-enroll.
-- *Screen lock "unverified"* — set Lock Screen → Require password → Immediately.
+- *Screen lock "unverified"* — the private call was unavailable and the fallback only slept the display; set Lock Screen → Require password → Immediately.
 - *Login item not starting* — approve it in System Settings → General → Login Items.
 
 ## Release, signing, notarization

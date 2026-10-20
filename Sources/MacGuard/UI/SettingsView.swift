@@ -45,7 +45,7 @@ struct SettingsView: View {
             }.onChange(of: c.settings.disconnectDelay) { c.power.setConfirmDelay($0) }
             Text("Longer delays reduce false alarms from a loose cable but delay the response.").font(.caption).foregroundStyle(.secondary)
             Toggle("Request a screen lock when theft is detected", isOn: s.autoScreenLock)
-            Text("Locking works by sleeping the display; macOS must be set to require a password immediately (System Settings → Lock Screen). MacGuard reports whether it could verify the lock.").font(.caption).foregroundStyle(.secondary)
+            Text("MacGuard locks the session with a macOS system call and reports whether it could verify the lock. If that call is unavailable it falls back to sleeping the display, which needs System Settings → Lock Screen → Require password: immediately.").font(.caption).foregroundStyle(.secondary)
             Toggle("Start MacGuard when I log in", isOn: Binding(get: { c.settings.launchAtLogin }, set: { c.setLaunchAtLogin($0) }))
             Text("This starts after you log in. MacGuard cannot monitor before login or while the Mac is shut down.").font(.caption).foregroundStyle(.secondary)
             Toggle("Resume protection automatically after MacGuard restarts", isOn: s.resumeArmedOnLaunch)
