@@ -166,7 +166,13 @@ With full Xcode you can instead `open Package.swift`, choose the **MacGuard** sc
 
 ### Install
 
-Copy `dist/MacGuard.app` to `/Applications`. The first launch of an ad-hoc-signed app requires right-click → Open. Then follow the in-app setup.
+| Option | Steps |
+|---|---|
+| Disk image | Download `MacGuard-<version>.dmg` from the [latest release](https://github.com/prasodium/MacGuard/releases/latest), open it and drag **MacGuard** onto **Applications**. |
+| Installer | Download `MacGuard-<version>.pkg` and double-click it (right-click → Open the first time). It always installs to `/Applications`. |
+| Built from source | Copy `dist/MacGuard.app` to `/Applications`. |
+
+The first launch of an ad-hoc-signed app requires right-click → Open. Then follow the in-app setup.
 
 <p align="right"><a href="#top">Back to top</a></p>
 
@@ -237,7 +243,7 @@ Everything stays on the Mac except the alert emails sent through your Brevo acco
 <details>
 <summary>Show release and notarization steps (contributors)</summary>
 
-`SIGN_IDENTITY="Developer ID Application: …" scripts/package.sh` signs with hardened runtime and zips; then `xcrun notarytool submit … --wait` and `xcrun stapler staple`. Not performed for this repository's current state; test location, login item and sleep/wake with the signed build (they can behave differently from debug/ad-hoc).
+`SIGN_IDENTITY="Developer ID Application: …" scripts/package.sh` signs with hardened runtime and builds the `.dmg`, `.pkg` and `.zip` in `dist/` (plus `SHA256SUMS.txt`; set `INSTALLER_IDENTITY="Developer ID Installer: …"` to sign the `.pkg`); then `xcrun notarytool submit … --wait` and `xcrun stapler staple` (for the `.dmg`). Not performed for this repository's current state; test location, login item and sleep/wake with the signed build (they can behave differently from debug/ad-hoc).
 
 </details>
 
