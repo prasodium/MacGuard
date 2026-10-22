@@ -111,6 +111,7 @@ public enum EmailTemplates {
             "charger_reconnected": "The charger was reconnected. This does NOT mean the Mac is back with its owner or unlocked.",
             "alarm_silenced": "The alarm was silenced after owner authentication.",
             "protection_disarmed": "Protection was disarmed after owner authentication.",
+            "mac_found": "The owner confirmed the Mac was found. No more location emails will be sent for this incident.",
         ]
         let heading = "MACGUARD STATUS: " + p.statusCode.replacingOccurrences(of: "_", with: " ")
         let summary = ["Original incident: \(p.incidentId)", texts[p.statusCode] ?? p.statusCode, "Time: \(iso(p.timestamp))", "Monitoring status: \(p.monitoringState)"]

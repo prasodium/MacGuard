@@ -39,6 +39,15 @@ final class AppCoordinator: ObservableObject {
     @Published var lastLocation: LocationRecord?
     @Published var busy: String?
     @Published var showOnboarding = false
+    /// True after the charger is plugged back in during a theft: asks the owner whether the Mac was found (a thief can plug it in too).
+    @Published var foundPrompt = false
+    /// The owner chose "No, keep tracking": keep emailing locations even though the charger is back.
+    private var trackingForced = false
+
+    func keepTracking() {
+        foundPrompt = false; trackingForced = true
+        if let i = incident { response.resumeFollowUps(incident: i, settings: settings, hooks: hooks()) }
+    }
 
     private var cancellables = Set<AnyCancellable>()
     private var sleptAt: Date?
@@ -94,7 +103,7 @@ final class AppCoordinator: ObservableObject {
             Task { @MainActor in
                 await n.flush()
                 // Internet is back while a theft is in progress: send the owner a fresh position.
-                if let self, self.machine.phase.isTheftFlow, !self.machine.chargerReconnected, let i = self.incident {
+                if let self, self.machine.phase.isTheftFlow, !self.machine.chargerReconnected || self.trackingForced, let i = self.incident {
                     await self.response.networkReturned(incident: i, settings: self.settings, hooks: self.hooks())
                 }
             }
@@ -160,6 +169,10 @@ final class AppCoordinator: ObservableObject {
             if machine.phase.isTheftFlow, var i = incident {
                 apply(.chargerReconnected); i.chargerReconnectedAt = Date(); incident = i; try? store?.save(i)
                 response.cancelFollowUps()   // the repeat timer resets; unplugging again starts a new incident and a new timer
+                foundPrompt = true
+                postLocal("MacGuard: charger reconnected", settings.emailEnabled
+                          ? "Did you find your Mac? Open MacGuard and press \"I found my Mac\" to stop location emails."
+                          : "Did you find your Mac? Open MacGuard and press \"I found my Mac\".")
                 if settings.stopAlarmOnReconnect, alarm.isActive {
                     alarm.stop(); log(.alarmStopped, "Silenced because the charger was reconnected (setting)", incident: i.id)
                 }
@@ -191,7 +204,7 @@ final class AppCoordinator: ObservableObject {
     private func startIncident() {
         let inc = Incident(powerBefore: .connected, powerAfter: .disconnected, batteryPercent: snapshot?.batteryPercent)
         guard machine.apply(.theftConfirmed(incident: inc.id)) else { return }
-        incident = inc
+        incident = inc; foundPrompt = false; trackingForced = false
         Task { await response.respond(to: inc, settings: settings, hooks: hooks()) }
     }
 
@@ -271,17 +284,20 @@ final class AppCoordinator: ObservableObject {
         heartbeat?.tolerance = 10
     }
 
-    func disarm() async {
-        let needsAuth = machine.phase.isTheftFlow
-        guard await auth.authenticate(reason: "Disarm MacGuard protection") else { banner = "Not confirmed. Protection stays on."; return }
-        _ = needsAuth
+    /// `found: true` is "I found my Mac": same owner authentication, and in addition every email for this incident that has not
+    /// been sent yet (for example location updates queued while offline) is cancelled, so nothing more is sent.
+    func disarm(found: Bool = false) async {
+        guard await auth.authenticate(reason: found ? "Confirm you found your Mac" : "Disarm MacGuard protection") else { banner = "Not confirmed. Protection stays on."; return }
         alarm.stop(); response.cancelFollowUps()
         let id = machine.incidentID
         if machine.apply(.disarm(authorized: true)) {
             heartbeat?.invalidate(); try? store?.setValue("armed", nil)
-            log(.protectionDisarmed, "Disarmed after owner authentication", incident: id)
-            if let id, settings.emailEnabled { Task { await notifier?.submitStatus(incidentID: id, code: "protection_disarmed", monitoring: health.level.rawValue) } }
-            incident = nil
+            log(.protectionDisarmed, found ? "Owner confirmed the Mac was found; location emails stopped" : "Disarmed after owner authentication", incident: id)
+            if let id, settings.emailEnabled {
+                let n = notifier, level = health.level.rawValue
+                Task { await n?.cancelPending(incidentID: id); await n?.submitStatus(incidentID: id, code: found ? "mac_found" : "protection_disarmed", monitoring: level) }
+            }
+            incident = nil; foundPrompt = false; trackingForced = false
         }
     }
 

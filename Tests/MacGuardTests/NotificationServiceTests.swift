@@ -125,3 +125,28 @@ final class SleepLog: @unchecked Sendable { var d: [TimeInterval] = []; let l = 
         #expect(try store.outbox(state: "accepted").contains { $0.id.hasSuffix(":location:10") })   // 10 beats 9 numerically
     }
 }
+
+@Suite struct FoundMacTests {
+    @Test func foundCancelsEverythingNotYetSentForThatIncidentOnly() async throws {
+        let m = MockMailer(); let store = try SecurityEventStore(path: nil)
+        let off = TheftNotificationService(mailer: m, store: store, recipient: { nil }, retryDelays: [1], sleeper: { _ in })   // offline
+        let a = Incident(), b = Incident()
+        await off.submitInitial(a, device: dev)
+        await off.submitLocation(a, sequence: 2, monitoring: "healthy", followUp: true)
+        await off.submitInitial(b, device: dev)
+        await off.cancelPending(incidentID: a.id)                    // owner pressed "I found my Mac" for incident a
+        #expect(try store.outbox(state: "cancelled").count == 2)
+        #expect(try store.outbox(state: "pending").count == 1)       // incident b is untouched
+        for it in try store.outbox(state: "pending") { try store.updateOutbox(id: it.id, state: "pending", attempts: 0, next: Date(), error: nil) }
+        let on = TheftNotificationService(mailer: m, store: store, recipient: { "owner@gmail.com" }, retryDelays: [1], sleeper: { _ in })
+        await on.flush()                                             // internet is back
+        #expect(m.sent.count == 1)                                   // only incident b's alert; nothing for the found Mac
+        #expect(m.sent[0].text.contains(b.id.uuidString.lowercased()))
+    }
+
+    @Test func foundStatusEmailExplainsNoMoreEmailsWillCome() {
+        let r = EmailTemplates.status(StatusPayload(incidentId: "x", statusCode: "mac_found", monitoringState: "healthy", timestamp: Date()))
+        #expect(r.text.contains("found")); #expect(r.text.contains("No more location emails"))
+    }
+}
+

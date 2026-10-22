@@ -12,7 +12,7 @@ struct DashboardView: View {
                 header
                 if let b = c.banner { Banner(text: b, dismiss: { c.banner = nil }) }
                 statusCard
-                if c.machine.phase.isTheftFlow { incidentCard }
+                if c.machine.phase.isTheftFlow { if c.foundPrompt { foundCard }; incidentCard }
                 tiles
                 if let e = c.events.first(where: { !$0.isTest }) {
                     Text("Last: \(e.type.title) · \(e.timestamp.formatted(date: .abbreviated, time: .shortened))")
@@ -64,6 +64,22 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity).padding(.vertical, 26)
         .background(c.statusColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .contain)
+    }
+
+    // MARK: Found
+    private var foundCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Charger reconnected. Did you find your Mac?").font(.headline)
+            Text("New location emails have stopped. Emails already waiting to be sent can still go out. \"I found my Mac\" (Touch ID or password) cancels those too. If someone else plugged it in, choose keep tracking to continue the location emails.")
+                .font(.callout).foregroundStyle(.secondary)
+            HStack {
+                Button("I found my Mac") { Task { await c.disarm(found: true) } }.buttonStyle(.borderedProminent)
+                Button("No, keep tracking") { c.keepTracking() }
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .contain)
     }
 

@@ -23,6 +23,7 @@ final class MockNotifier: IncidentNotifying, @unchecked Sendable {
     func submitStatus(incidentID: UUID, code: String, monitoring: String) async { statuses += 1 }
     func sendTest(device: DeviceInfo) async -> Result<String, APIError> { .success("x") }
     func flush() async {}
+    func cancelPending(incidentID: UUID) async {}
 }
 
 @MainActor @Suite struct TheftResponseTests {
@@ -150,6 +151,17 @@ final class WaitLog: @unchecked Sendable {
         var off = s; off.emailEnabled = false
         await c.networkReturned(incident: inc, settings: off, hooks: hooks())    // email off: nothing
         #expect(n.locations == 1)
+    }
+
+    @Test func keepTrackingRestartsTheRepeatTimerFromNow() async throws {
+        let n = MockNotifier(); let log = WaitLog()
+        let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
+                                         sleep: { log.add($0); try? await Task.sleep(nanoseconds: 2_000_000) })
+        let old = Incident(createdAt: Date().addingTimeInterval(-7200))      // unplugged two hours ago
+        c.resumeFollowUps(incident: old, settings: periodic, hooks: hooks())
+        await waitUntil { n.locations >= 5 }
+        #expect(n.locations == 5)
+        #expect(abs((log.all.first ?? 0) - 600) < 5)                         // first repeat 10 min from NOW, not a burst of catch-up emails
     }
 
     @Test func theEarlierWaitBetweenEmailsSettingBecomesRepeatEvery() throws {

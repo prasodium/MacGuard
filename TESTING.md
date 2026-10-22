@@ -5,7 +5,7 @@ scripts/test.sh   # Swift tests (Swift Testing)
 ```
 
 ## Results at the time of writing (macOS 27.0.1, arm64, Swift 6.4, Command Line Tools only)
-- **96 tests / 13 suites pass**, including:
+- **99 tests / 14 suites pass**, including:
   - power detector & monitor (connected, disconnected, fully charged, low battery, duplicate notifications, unknown, API failure, start-on-battery, transient disconnect, wake)
   - state machine, including repeated unplug/replug cycles that must alarm every time
   - location (fresh, cached, timeout, denied, invalid coordinates, last-known, cancellation)
@@ -14,6 +14,7 @@ scripts/test.sh   # Swift tests (Swift Testing)
   - notification outbox (backoff, exhaustion, permanent errors, dedupe, offline resend, alerts wait for a verified address)
   - repeat while unplugged (email every interval counted from the unplug, stops and resets when the charger is reconnected, other modes do not repeat, the 0.2.0 "wait between emails" setting converts to a repeat interval)
   - one combined alert email (no separate location email), fresh location emailed when the internet returns during a theft, queued location updates collapse to the newest by sequence number, the 0.2.0/0.2.1 "one follow-up" mode converts to the single email
+  - found my Mac (cancels every unsent email for that incident only, explains it in the status email, keep tracking restarts the timer from now instead of a catch-up burst)
   - email templates (map link only for valid coordinates, honest FRESH/CACHED/LAST KNOWN labels, escaping, required fields)
   - theft response (alarm independent of email/location/lock failure; one execution per incident)
   - security (DB permissions, no key-shaped strings in source, only `BrevoMailer` references Brevo, settings migration)

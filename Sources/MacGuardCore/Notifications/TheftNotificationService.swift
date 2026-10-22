@@ -63,6 +63,8 @@ public protocol IncidentNotifying: Sendable {
     func submitStatus(incidentID: UUID, code: String, monitoring: String) async
     func sendTest(device: DeviceInfo) async -> Result<String, APIError>
     func flush() async
+    /// The owner found the Mac: drop every email for this incident that has not been sent yet.
+    func cancelPending(incidentID: UUID) async
 }
 
 /// Queues alerts in the local outbox and sends them straight to Brevo with bounded exponential backoff.
@@ -144,6 +146,13 @@ public actor TheftNotificationService: IncidentNotifying {
     }
 
     private static func sequence(_ id: String) -> Int { Int(id.split(separator: ":").last ?? "") ?? 0 }
+
+    public func cancelPending(incidentID: UUID) async {
+        guard let items = try? store.outbox(state: "pending") else { return }
+        for item in items where item.incidentID == incidentID {
+            try? store.updateOutbox(id: item.id, state: "cancelled", attempts: item.attempts, next: Date(), error: "Cancelled: the owner found the Mac")
+        }
+    }
 
     /// Delivers all due items. Safe to call repeatedly (e.g. when connectivity returns); never runs concurrently.
     public func flush() async {

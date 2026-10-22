@@ -114,11 +114,11 @@ public final class TheftResponseCoordinator {
     /// "Repeat while unplugged": one email every `followUpInterval`, counted from the moment of the disconnect, for as long as this
     /// incident is running. Reconnecting the charger (cancelFollowUps) stops it; unplugging again is a new incident with a fresh timer.
     /// Each email carries the best position available and says honestly whether it is fresh, cached or last known.
-    private func startFollowUps(incident: Incident, settings: AppSettings, hooks: Hooks) {
+    private func startFollowUps(incident: Incident, settings: AppSettings, hooks: Hooks, origin: Date? = nil) {
         guard settings.followUpMode == .periodic else { return }
         followUpTask?.cancel()
         let interval = max(60, settings.followUpInterval)
-        let origin = incident.createdAt
+        let origin = origin ?? incident.createdAt
         followUpTask = Task { @MainActor [weak self] in
             var n = 1
             while !Task.isCancelled, Double(n) * interval <= settings.followUpMaxDuration {
@@ -133,6 +133,12 @@ public final class TheftResponseCoordinator {
                 await self.notifier?.submitLocation(inc, sequence: self.sequence, monitoring: hooks.monitoringState(), followUp: true)
             }
         }
+    }
+
+    /// The owner said "No, keep tracking" after the charger was reconnected (a thief can plug it in): restart the repeat timer from now.
+    public func resumeFollowUps(incident: Incident, settings: AppSettings, hooks: Hooks) {
+        guard settings.emailEnabled, notifier != nil else { return }
+        startFollowUps(incident: incident, settings: settings, hooks: hooks, origin: Date())
     }
 
     /// The Mac just got internet again while an incident is running: take a fresh position and email it, so the owner sees where it is
