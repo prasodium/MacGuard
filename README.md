@@ -86,7 +86,7 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Screen lock (private `SACLockScreenImmediate`, fallback `pmset displaysleepnow`, verified via CGSession) | Implemented; **verified on a real Mac (macOS 27.0.1): session reported locked**. Not tested on other macOS versions |
 | Location (Core Location, timeout, cache/last-known, validation) | Implemented, unit-tested with mocks; **real fix & permission flow awaiting hardware validation** |
 | Email: direct to Brevo (key in Keychain), verified Gmail via emailed code, HTML+text templates, offline queue + backoff | Implemented, unit-tested; the Brevo endpoints were checked against the live API with a dummy key. Automated tests never send a real email; the owner reports real alerts through their own Brevo account work (not covered by the test suite) |
-| Retry/outbox/offline queue, follow-ups | Implemented, unit-tested |
+| Retry/outbox/offline queue, repeat emails, fresh location on reconnect | Implemented, unit-tested |
 | Dashboard, Settings, History, 9-step onboarding, Find My guide, menu bar | Implemented; launch smoke-tested, **not visually reviewed or VoiceOver-audited** |
 | Login item (`SMAppService`), restore-after-restart, sleep/wake handling | Implemented; **not hardware-tested** |
 | `.xcodeproj` | **Not provided** – Xcode isn't installed on the dev machine; the project is a Swift package + `scripts/build_app.sh` (open `Package.swift` in Xcode to get a project) |
@@ -107,7 +107,8 @@ See [TESTING.md](TESTING.md) for exactly what was run.
 | Arming | Explicit confirmation to arm; refuses to arm if power state is unknown or the charger is unplugged. |
 | Owner authentication | Alarm stop / disarm require owner authentication (Touch ID or macOS password via the system `LocalAuthentication` prompt; MacGuard never sees the password). |
 | Alert email | incident id, device, battery, power before/after, time zone, alarm & lock status, location (labelled FRESH / CACHED / LAST KNOWN, or "LOCATION UNAVAILABLE"), Apple Maps link only for valid coordinates, recovery steps. |
-| Follow-ups | none / one / periodic; stale or unchanged positions are skipped, never re-sent. |
+| One email per theft | The theft alert and the location arrive together in a single email (sent as soon as the location attempt finishes, at most the location timeout, default 20 s; the alarm and screen lock never wait for it). The email has a map link to the position. |
+| Back online | If the Mac was offline and the internet returns while a theft is in progress, MacGuard takes a fresh position and emails it, so the link shows where the Mac is now. Several updates queued while offline are collapsed into the newest one. |
 | Repeat emails while unplugged | Optional. After the charger is unplugged, an email is sent every 1, 2, 5, 10, 15, 30 or 60 minutes (you choose) for as long as it stays unplugged, up to a limit you set. Plugging the charger back in stops and resets the timer; unplugging again starts a new one. Each email carries the best position available, labelled fresh, cached or last known. |
 | Offline outbox | Bounded exponential backoff; resumes on connectivity. |
 

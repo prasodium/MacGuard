@@ -28,6 +28,7 @@ public final class TheftResponseCoordinator {
     private var followUpTask: Task<Void, Never>?
     private var responseTask: Task<Void, Never>?
     private let sleep: @Sendable (TimeInterval) async -> Void
+    private var sequence = 1   // number of the last location email for the current incident (1 = the combined alert)
 
     public init(alarm: AlarmControlling, locker: ScreenLocking, location: LocationResolving,
                 notifier: IncidentNotifying?, store: SecurityEventStore?, device: DeviceInfo,
@@ -41,6 +42,7 @@ public final class TheftResponseCoordinator {
     public func respond(to initial: Incident, settings: AppSettings, hooks: Hooks) async {
         guard handled.insert(initial.id).inserted else { return }
         cancelFollowUps() // a new incident replaces the previous incident's follow-up schedule
+        sequence = 1
         var incident = initial
         let id = incident.id
         func commit() { try? store?.save(incident); hooks.update(incident) }
@@ -70,15 +72,6 @@ public final class TheftResponseCoordinator {
         commit()
 
         let emailOn = settings.emailEnabled && notifier != nil
-        let waitForLocationFirst = settings.followUpMode == .initialOnly
-
-        // 4. Initial alert with what is known now (unless a single combined email was requested).
-        if emailOn && !waitForLocationFirst {
-            incident.notification = .queued
-            hooks.log(.emailQueued, "Initial alert queued", id)
-            commit()
-            await notifier?.submitInitial(incident, device: device)
-        }
 
         let acq = await locTask.value
         incident.locationOutcome = acq.outcome
@@ -98,14 +91,12 @@ public final class TheftResponseCoordinator {
         commit()
 
         if emailOn {
-            if waitForLocationFirst {
-                incident.notification = .queued
-                hooks.log(.emailQueued, "Alert queued", id)
-                commit()
-                await notifier?.submitInitial(incident, device: device)
-            } else {
-                await notifier?.submitLocation(incident, sequence: 1, monitoring: hooks.monitoringState(), followUp: false)
-            }
+            // ONE email: the theft alert together with the location (or an honest "location unavailable"). The alarm and the screen
+            // lock never wait for this; only the email does, for at most the location timeout.
+            incident.notification = .queued
+            hooks.log(.emailQueued, "Alert queued", id)
+            commit()
+            await notifier?.submitInitial(incident, device: device)
             startFollowUps(incident: incident, settings: settings, hooks: hooks)
         } else {
             incident.notification = .disabled
@@ -128,7 +119,6 @@ public final class TheftResponseCoordinator {
         followUpTask?.cancel()
         let interval = max(60, settings.followUpInterval)
         let origin = incident.createdAt
-        var seq = 1
         followUpTask = Task { @MainActor [weak self] in
             var n = 1
             while !Task.isCancelled, Double(n) * interval <= settings.followUpMaxDuration {
@@ -138,11 +128,23 @@ public final class TheftResponseCoordinator {
                 let acq = await self.location.acquire(enabled: settings.locationEnabled, accuracy: settings.locationAccuracy,
                                                       timeout: settings.locationTimeout, allowLastKnown: settings.keepLastKnownLocation)
                 guard !Task.isCancelled else { return }
-                seq += 1; n += 1
+                sequence += 1; n += 1
                 var inc = incident; inc.location = acq.record; inc.locationOutcome = acq.outcome
-                await self.notifier?.submitLocation(inc, sequence: seq, monitoring: hooks.monitoringState(), followUp: true)
+                await self.notifier?.submitLocation(inc, sequence: self.sequence, monitoring: hooks.monitoringState(), followUp: true)
             }
         }
+    }
+
+    /// The Mac just got internet again while an incident is running: take a fresh position and email it, so the owner sees where it is
+    /// now rather than where it was when the connection dropped. Queued older location updates are replaced by this one.
+    public func networkReturned(incident: Incident, settings: AppSettings, hooks: Hooks) async {
+        guard settings.emailEnabled, let notifier else { return }
+        let acq = await location.acquire(enabled: settings.locationEnabled, accuracy: settings.locationAccuracy,
+                                         timeout: settings.locationTimeout, allowLastKnown: settings.keepLastKnownLocation)
+        sequence += 1
+        var inc = incident; inc.location = acq.record; inc.locationOutcome = acq.outcome
+        hooks.log(.emailQueued, "Back online: location update queued", incident.id)
+        await notifier.submitLocation(inc, sequence: sequence, monitoring: hooks.monitoringState(), followUp: true)
     }
 
     public func cancelFollowUps() { followUpTask?.cancel(); followUpTask = nil }

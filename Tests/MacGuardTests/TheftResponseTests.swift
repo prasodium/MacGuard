@@ -41,7 +41,7 @@ final class MockNotifier: IncidentNotifying, @unchecked Sendable {
         await c.respond(to: Incident(), settings: settings, hooks: hooks(sink))
         #expect(alarm.startCount == 1 && alarm.isActive)
         #expect(sink.events.first == .alarmStarted)
-        #expect(n.initial == 1 && n.locations == 1)
+        #expect(n.initial == 1 && n.locations == 0)      // ONE email: the alert already carries the location
         #expect(sink.incident?.screenLock == .requestedUnverified); #expect(sink.incident?.alarm == .succeeded)
         #expect(sink.incident?.location?.freshness == .fresh)
         #expect(sink.logs.contains(.alarmStarted) && sink.logs.contains(.screenLockRequested) && sink.logs.contains(.locationAcquired))
@@ -63,9 +63,8 @@ final class MockNotifier: IncidentNotifying, @unchecked Sendable {
     @Test func initialAlertDoesNotWaitForSlowLocation() async throws {
         let alarm = MockAlarm(); let n = MockNotifier(); let loc = MockLoc(); loc.delay = 0.5
         let c = TheftResponseCoordinator(alarm: alarm, locker: MockLock(), location: loc, notifier: n, store: nil, device: dev)
-        var s = settings; s.followUpMode = .oneFollowUp
-        await c.respond(to: Incident(), settings: s, hooks: hooks(Sink()))
-        #expect(n.order == ["initial", "loc"]) // initial first, location update after
+        await c.respond(to: Incident(), settings: settings, hooks: hooks(Sink()))
+        #expect(n.order == ["initial"])   // a single combined email, sent once the location attempt has finished
     }
     @Test func secondIncidentAfterReconnectSoundsTheAlarmAgain() async throws {
         let alarm = MockAlarm(); let n = MockNotifier()
@@ -108,9 +107,9 @@ final class WaitLog: @unchecked Sendable {
         let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
                                          sleep: { log.add($0); try? await Task.sleep(nanoseconds: 2_000_000) })
         await c.respond(to: Incident(), settings: periodic, hooks: hooks())
-        await waitUntil { n.locations >= 6 }
+        await waitUntil { n.locations >= 5 }
         #expect(n.initial == 1)
-        #expect(n.locations == 6)                                  // location update, then 5 repeats (10 min x 5 = 50 min)
+        #expect(n.locations == 5)                                  // the combined alert, then 5 repeats (10 min x 5 = 50 min)
         let waits = log.all
         #expect(waits.count >= 5)
         for (i, w) in waits.prefix(5).enumerated() { #expect(abs(w - Double(i + 1) * 600) < 5) }   // 10, 20, 30, 40, 50 min after the unplug
@@ -121,22 +120,36 @@ final class WaitLog: @unchecked Sendable {
         let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
                                          sleep: { _ in while !Task.isCancelled { try? await Task.sleep(nanoseconds: 2_000_000) } })   // "waiting" until cancelled
         await c.respond(to: Incident(), settings: periodic, hooks: hooks())
-        #expect(n.locations == 1)
+        #expect(n.initial == 1 && n.locations == 0)
         c.cancelFollowUps()                                         // charger plugged back in
         try? await Task.sleep(nanoseconds: 60_000_000)
-        #expect(n.locations == 1)                                   // nothing more is sent
+        #expect(n.locations == 0)                                   // nothing more is sent
         await c.respond(to: Incident(), settings: periodic, hooks: hooks())   // unplugged again: new incident, new timer
-        #expect(n.initial == 2 && n.locations == 2)
+        #expect(n.initial == 2 && n.locations == 0)
         c.cancelFollowUps()
     }
 
     @Test func otherModesDoNotRepeat() async throws {
-        let n = MockNotifier(); var s = periodic; s.followUpMode = .oneFollowUp
+        let n = MockNotifier(); var s = periodic; s.followUpMode = .initialOnly
         let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
                                          sleep: { _ in try? await Task.sleep(nanoseconds: 1_000_000) })
         await c.respond(to: Incident(), settings: s, hooks: hooks())
         try? await Task.sleep(nanoseconds: 60_000_000)
-        #expect(n.initial == 1 && n.locations == 1)
+        #expect(n.initial == 1 && n.locations == 0)
+    }
+
+    @Test func comingBackOnlineDuringATheftSendsAFreshLocation() async throws {
+        let n = MockNotifier(); let loc = MockLoc()
+        let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: loc, notifier: n, store: nil, device: dev)
+        var s = AppSettings(); s.emailEnabled = true; s.locationTimeout = 1
+        let inc = Incident()
+        await c.respond(to: inc, settings: s, hooks: hooks())
+        #expect(n.initial == 1 && n.locations == 0)
+        await c.networkReturned(incident: inc, settings: s, hooks: hooks())      // Wi-Fi came back
+        #expect(n.locations == 1)
+        var off = s; off.emailEnabled = false
+        await c.networkReturned(incident: inc, settings: off, hooks: hooks())    // email off: nothing
+        #expect(n.locations == 1)
     }
 
     @Test func theEarlierWaitBetweenEmailsSettingBecomesRepeatEvery() throws {
@@ -144,6 +157,8 @@ final class WaitLog: @unchecked Sendable {
         let s = try JSONDecoder().decode(AppSettings.self, from: json)
         #expect(s.followUpMode == .periodic); #expect(s.followUpInterval == 600)
         let plain = try JSONDecoder().decode(AppSettings.self, from: #"{"emailEnabled":true}"#.data(using: .utf8)!)
-        #expect(plain.followUpMode == .oneFollowUp)
+        #expect(plain.followUpMode == .initialOnly)
+        let legacyOne = try JSONDecoder().decode(AppSettings.self, from: #"{"followUpMode":"oneFollowUp"}"#.data(using: .utf8)!)
+        #expect(legacyOne.followUpMode == .initialOnly)      // the separate follow-up email was merged into the alert
     }
 }

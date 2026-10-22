@@ -109,3 +109,19 @@ final class SleepLog: @unchecked Sendable { var d: [TimeInterval] = []; let l = 
         if case .failure(let e) = await none.sendTest(device: dev) { #expect(e == .noRecipient) } else { Issue.record("must not send without a verified address") }
     }
 }
+
+@Suite struct OfflineLocationQueueTests {
+    @Test func onlyTheNewestQueuedLocationIsSentOnceBackOnline() async throws {
+        let m = MockMailer(); let store = try SecurityEventStore(path: nil)
+        let svc = TheftNotificationService(mailer: m, store: store, recipient: { nil }, retryDelays: [1], sleeper: { _ in })   // offline: no way to send
+        var inc = Incident(); inc.locationOutcome = .timedOut
+        for seq in [2, 3, 9, 10] { await svc.submitLocation(inc, sequence: seq, monitoring: "healthy", followUp: true) }
+        #expect(m.sent.isEmpty)
+        for it in try store.outbox(state: "pending") { try store.updateOutbox(id: it.id, state: "pending", attempts: it.attempts, next: Date(), error: it.lastError) }   // the retry time arrives
+        let back = TheftNotificationService(mailer: m, store: store, recipient: { "owner@gmail.com" }, retryDelays: [1], sleeper: { _ in })
+        await back.flush()                                                     // connection returned
+        #expect(m.sent.count == 1)
+        #expect(try store.outbox(state: "superseded").count == 3)
+        #expect(try store.outbox(state: "accepted").contains { $0.id.hasSuffix(":location:10") })   // 10 beats 9 numerically
+    }
+}

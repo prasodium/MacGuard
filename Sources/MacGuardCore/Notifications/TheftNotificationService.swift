@@ -143,12 +143,19 @@ public actor TheftNotificationService: IncidentNotifying {
         }
     }
 
+    private static func sequence(_ id: String) -> Int { Int(id.split(separator: ":").last ?? "") ?? 0 }
+
     /// Delivers all due items. Safe to call repeatedly (e.g. when connectivity returns); never runs concurrently.
     public func flush() async {
         guard !flushing else { return }
         flushing = true; defer { flushing = false }
         guard let items = try? store.outbox(state: "pending") else { return }
         for item in items where item.nextAttempt <= Date() {
+            // Several location updates queued while offline: only the newest one is worth sending once the Mac is back online.
+            if item.kind == "location", items.contains(where: { $0.kind == "location" && $0.incidentID == item.incidentID && Self.sequence($0.id) > Self.sequence(item.id) }) {
+                try? store.updateOutbox(id: item.id, state: "superseded", attempts: item.attempts, next: Date(), error: "Replaced by a newer location update")
+                continue
+            }
             guard let mail = try? render(item) else {
                 try? store.updateOutbox(id: item.id, state: "failed", attempts: item.attempts, next: Date(), error: "Unreadable queued alert")
                 continue

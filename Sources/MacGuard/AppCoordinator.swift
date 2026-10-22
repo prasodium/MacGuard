@@ -90,7 +90,15 @@ final class AppCoordinator: ObservableObject {
         let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient })
         notifier = n
         Task { await n.setOnStatus { [weak self] id, status, msg in Task { @MainActor in self?.notificationChanged(id, status, msg) } } }
-        connectivity.start { Task { await n.flush() } }
+        connectivity.start { [weak self] in
+            Task { @MainActor in
+                await n.flush()
+                // Internet is back while a theft is in progress: send the owner a fresh position.
+                if let self, self.machine.phase.isTheftFlow, !self.machine.chargerReconnected, let i = self.incident {
+                    await self.response.networkReturned(incident: i, settings: self.settings, hooks: self.hooks())
+                }
+            }
+        }
         Task { await n.flush() } // deliver anything queued before the last quit
     }
 

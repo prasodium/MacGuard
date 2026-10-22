@@ -124,7 +124,7 @@ struct SettingsView: View {
             }
 
             Section("Repeat emails while unplugged") {
-                Picker("Send", selection: s.followUpMode) { ForEach(FollowUpMode.allCases, id: \.self) { Text($0.title).tag($0) } }
+                Picker("Send", selection: s.followUpMode) { ForEach([FollowUpMode.initialOnly, .periodic], id: \.self) { Text($0.title).tag($0) } }
                 if c.settings.followUpMode == .periodic {
                     Picker("Every", selection: Binding(get: { c.settings.followUpInterval }, set: { c.settings.followUpInterval = $0 })) {
                         ForEach([1.0, 2, 5, 10, 15, 30, 60], id: \.self) { Text("\(Int($0)) min").tag($0 * 60) }

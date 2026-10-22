@@ -54,7 +54,7 @@ import Combine
         let old = #"{"disconnectDelay":3,"emailEnabled":true,"backendURL":"https://old.example","alarm":{"sound":"Glass","repeatInterval":2,"initialDelay":0,"continueAfterLock":true,"showLocalNotification":true,"maximizeVolume":true}}"#
         let s = try JSONDecoder().decode(AppSettings.self, from: Data(old.utf8))
         #expect(s.disconnectDelay == 3); #expect(s.emailEnabled); #expect(s.alarm.sound == "Glass")
-        #expect(s.stopAlarmOnReconnect); #expect(s.followUpMode == .oneFollowUp)   // defaults for fields the old data lacks
+        #expect(s.stopAlarmOnReconnect); #expect(s.followUpMode == .initialOnly)   // defaults for fields the old data lacks
         let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
         #expect(back == s)
     }

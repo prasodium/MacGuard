@@ -13,8 +13,8 @@ public enum FollowUpMode: String, Codable, CaseIterable, Sendable {
     case initialOnly, oneFollowUp, periodic
     public var title: String {
         switch self {
-        case .initialOnly: return "Initial alert only"
-        case .oneFollowUp: return "Initial alert plus one follow-up"
+        case .initialOnly: return "One email (alert and location together)"
+        case .oneFollowUp: return "One email (alert and location together)"
         case .periodic: return "Repeat while the charger is unplugged"
         }
     }
@@ -38,7 +38,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var senderEmail = ""
     /// Verified address that receives alerts (set only after the emailed code is confirmed).
     public var recipientEmail = ""
-    public var followUpMode: FollowUpMode = .oneFollowUp
+    public var followUpMode: FollowUpMode = .initialOnly
     public var followUpInterval: TimeInterval = 600
     public var followUpMaxDuration: TimeInterval = 6 * 3600
     public var sendRecoveryNotice = false
@@ -68,6 +68,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         followUpMode = try c.decodeIfPresent(type(of: d.followUpMode).self, forKey: .followUpMode) ?? d.followUpMode
         followUpInterval = try c.decodeIfPresent(type(of: d.followUpInterval).self, forKey: .followUpInterval) ?? d.followUpInterval
         followUpMaxDuration = try c.decodeIfPresent(type(of: d.followUpMaxDuration).self, forKey: .followUpMaxDuration) ?? d.followUpMaxDuration
+        if followUpMode == .oneFollowUp { followUpMode = .initialOnly }   // the separate follow-up email no longer exists
         sendRecoveryNotice = try c.decodeIfPresent(type(of: d.sendRecoveryNotice).self, forKey: .sendRecoveryNotice) ?? d.sendRecoveryNotice
         locationEnabled = try c.decodeIfPresent(type(of: d.locationEnabled).self, forKey: .locationEnabled) ?? d.locationEnabled
         locationAccuracy = try c.decodeIfPresent(type(of: d.locationAccuracy).self, forKey: .locationAccuracy) ?? d.locationAccuracy

@@ -18,7 +18,7 @@ import Foundation
         init(delay: TimeInterval) {
             monitor = PowerMonitor(reader: reader, notifier: nil, confirmDelay: delay, pollInterval: 3600)
             response = TheftResponseCoordinator(alarm: alarm, locker: MockLock(), location: MockLoc(), notifier: notifier, store: nil, device: dev)
-            settings.emailEnabled = true; settings.locationTimeout = 1; settings.followUpMode = .oneFollowUp
+            settings.emailEnabled = true; settings.locationTimeout = 1; settings.followUpMode = .initialOnly
             monitor.onEvent = { [unowned self] e, _ in handle(e) }
         }
         func hooks() -> TheftResponseCoordinator.Hooks {
