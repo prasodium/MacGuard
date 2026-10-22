@@ -27,9 +27,12 @@ public final class TheftResponseCoordinator {
     private var handled = Set<UUID>()
     private var followUpTask: Task<Void, Never>?
     private var responseTask: Task<Void, Never>?
+    private let sleep: @Sendable (TimeInterval) async -> Void
 
     public init(alarm: AlarmControlling, locker: ScreenLocking, location: LocationResolving,
-                notifier: IncidentNotifying?, store: SecurityEventStore?, device: DeviceInfo) {
+                notifier: IncidentNotifying?, store: SecurityEventStore?, device: DeviceInfo,
+                sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64(max(0, $0) * 1e9)) }) {
+        self.sleep = sleep
         self.alarm = alarm; self.locker = locker; self.location = location
         self.notifier = notifier; self.store = store; self.device = device
     }
@@ -117,22 +120,26 @@ public final class TheftResponseCoordinator {
         if status == .accepted { hooks.transition(.notificationSent) }
     }
 
+    /// "Repeat while unplugged": one email every `followUpInterval`, counted from the moment of the disconnect, for as long as this
+    /// incident is running. Reconnecting the charger (cancelFollowUps) stops it; unplugging again is a new incident with a fresh timer.
+    /// Each email carries the best position available and says honestly whether it is fresh, cached or last known.
     private func startFollowUps(incident: Incident, settings: AppSettings, hooks: Hooks) {
         guard settings.followUpMode == .periodic else { return }
         followUpTask?.cancel()
-        let started = Date()
-        var last = incident.location?.acquiredAt
+        let interval = max(60, settings.followUpInterval)
+        let origin = incident.createdAt
         var seq = 1
         followUpTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled, Date().timeIntervalSince(started) < settings.followUpMaxDuration {
-                try? await Task.sleep(nanoseconds: UInt64(max(60, settings.followUpInterval) * 1e9))
+            var n = 1
+            while !Task.isCancelled, Double(n) * interval <= settings.followUpMaxDuration {
+                let wait = origin.addingTimeInterval(Double(n) * interval).timeIntervalSinceNow
+                if let self { await self.sleep(wait) }
                 guard !Task.isCancelled, let self else { return }
                 let acq = await self.location.acquire(enabled: settings.locationEnabled, accuracy: settings.locationAccuracy,
-                                                      timeout: settings.locationTimeout, allowLastKnown: false)
-                // Skip stale or unchanged positions rather than repeating old coordinates.
-                guard let rec = acq.record, rec.freshness == .fresh, rec.acquiredAt != last else { continue }
-                last = rec.acquiredAt; seq += 1
-                var inc = incident; inc.location = rec; inc.locationOutcome = acq.outcome
+                                                      timeout: settings.locationTimeout, allowLastKnown: settings.keepLastKnownLocation)
+                guard !Task.isCancelled else { return }
+                seq += 1; n += 1
+                var inc = incident; inc.location = acq.record; inc.locationOutcome = acq.outcome
                 await self.notifier?.submitLocation(inc, sequence: seq, monitoring: hooks.monitoringState(), followUp: true)
             }
         }

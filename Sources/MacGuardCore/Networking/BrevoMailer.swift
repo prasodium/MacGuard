@@ -16,11 +16,9 @@ public protocol MailSending: Sendable {
 /// Thread-safe holder for values the mailer needs that the UI edits (sender address, verified recipient).
 public final class MailConfig: @unchecked Sendable {
     private let lock = NSLock()
-    private var _sender = "", _recipient: String?, _minInterval: TimeInterval = 0
+    private var _sender = "", _recipient: String?
     public init(sender: String = "", recipient: String? = nil) { _sender = sender; _recipient = recipient }
     public var sender: String { get { lock.lock(); defer { lock.unlock() }; return _sender } set { lock.lock(); _sender = newValue; lock.unlock() } }
-    /// Minimum seconds between alert emails (0 = off). Read by the notification service on every flush.
-    public var minInterval: TimeInterval { get { lock.lock(); defer { lock.unlock() }; return _minInterval } set { lock.lock(); _minInterval = max(0, newValue); lock.unlock() } }
     public var recipient: String? { get { lock.lock(); defer { lock.unlock() }; return _recipient } set { lock.lock(); _recipient = newValue; lock.unlock() } }
 }
 

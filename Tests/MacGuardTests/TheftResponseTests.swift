@@ -85,3 +85,65 @@ final class MockNotifier: IncidentNotifying, @unchecked Sendable {
         #expect(n.initial == 1 && n.locations == 0)
     }
 }
+
+final class WaitLog: @unchecked Sendable {
+    private let l = NSLock(); private var w: [TimeInterval] = []
+    func add(_ x: TimeInterval) { l.lock(); w.append(x); l.unlock() }
+    var all: [TimeInterval] { l.lock(); defer { l.unlock() }; return w }
+}
+
+@MainActor @Suite struct RepeatWhileUnpluggedTests {
+    var periodic: AppSettings {
+        var s = AppSettings(); s.emailEnabled = true; s.locationTimeout = 1
+        s.followUpMode = .periodic; s.followUpInterval = 600; s.followUpMaxDuration = 3000   // every 10 min, for 50 min
+        return s
+    }
+    func hooks() -> TheftResponseCoordinator.Hooks {
+        .init(transition: { _ in }, update: { _ in }, log: { _, _, _ in }, monitoringState: { "healthy" }, localNotification: { _, _ in })
+    }
+    func waitUntil(_ cond: @MainActor () -> Bool) async { for _ in 0..<400 where !cond() { try? await Task.sleep(nanoseconds: 5_000_000) } }
+
+    @Test func sendsAnEmailEveryIntervalCountedFromTheDisconnect() async throws {
+        let n = MockNotifier(); let log = WaitLog()
+        let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
+                                         sleep: { log.add($0); try? await Task.sleep(nanoseconds: 2_000_000) })
+        await c.respond(to: Incident(), settings: periodic, hooks: hooks())
+        await waitUntil { n.locations >= 6 }
+        #expect(n.initial == 1)
+        #expect(n.locations == 6)                                  // location update, then 5 repeats (10 min x 5 = 50 min)
+        let waits = log.all
+        #expect(waits.count >= 5)
+        for (i, w) in waits.prefix(5).enumerated() { #expect(abs(w - Double(i + 1) * 600) < 5) }   // 10, 20, 30, 40, 50 min after the unplug
+    }
+
+    @Test func reconnectingTheChargerStopsAndResetsTheRepeat() async throws {
+        let n = MockNotifier()
+        let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
+                                         sleep: { _ in while !Task.isCancelled { try? await Task.sleep(nanoseconds: 2_000_000) } })   // "waiting" until cancelled
+        await c.respond(to: Incident(), settings: periodic, hooks: hooks())
+        #expect(n.locations == 1)
+        c.cancelFollowUps()                                         // charger plugged back in
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        #expect(n.locations == 1)                                   // nothing more is sent
+        await c.respond(to: Incident(), settings: periodic, hooks: hooks())   // unplugged again: new incident, new timer
+        #expect(n.initial == 2 && n.locations == 2)
+        c.cancelFollowUps()
+    }
+
+    @Test func otherModesDoNotRepeat() async throws {
+        let n = MockNotifier(); var s = periodic; s.followUpMode = .oneFollowUp
+        let c = TheftResponseCoordinator(alarm: MockAlarm(), locker: MockLock(), location: MockLoc(), notifier: n, store: nil, device: dev,
+                                         sleep: { _ in try? await Task.sleep(nanoseconds: 1_000_000) })
+        await c.respond(to: Incident(), settings: s, hooks: hooks())
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        #expect(n.initial == 1 && n.locations == 1)
+    }
+
+    @Test func theEarlierWaitBetweenEmailsSettingBecomesRepeatEvery() throws {
+        let json = #"{"emailEnabled":true,"emailMinInterval":600}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(AppSettings.self, from: json)
+        #expect(s.followUpMode == .periodic); #expect(s.followUpInterval == 600)
+        let plain = try JSONDecoder().decode(AppSettings.self, from: #"{"emailEnabled":true}"#.data(using: .utf8)!)
+        #expect(plain.followUpMode == .oneFollowUp)
+    }
+}

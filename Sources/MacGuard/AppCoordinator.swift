@@ -56,7 +56,6 @@ final class AppCoordinator: ObservableObject {
         power = PowerMonitor(confirmDelay: settingsStore.settings.disconnectDelay)
         // Views observe the coordinator, but settings live in SettingsStore: forward its changes so every
         // setting (steppers, pickers, toggles) refreshes the UI immediately instead of on the next redraw.
-        settingsStore.$settings.sink { [weak self] s in self?.mailConfig.minInterval = s.emailMinInterval }.store(in: &cancellables)
         settingsStore.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         if store == nil { banner = "Can't save the event log." }
         buildNotifier()
@@ -80,7 +79,6 @@ final class AppCoordinator: ObservableObject {
     /// (Re)creates the Brevo mailer, recipient verifier and notifier from current settings.
     func buildNotifier() {
         mailConfig.sender = settings.senderEmail
-        mailConfig.minInterval = settings.emailMinInterval
         mailConfig.recipient = settings.recipientEmail.isEmpty ? nil : settings.recipientEmail
         guard let store else { return }
         let m = mailer ?? BrevoMailer(secrets: secrets, config: mailConfig)
@@ -89,7 +87,7 @@ final class AppCoordinator: ObservableObject {
         keySaved = m.hasKey; pendingRecipient = verifier?.pendingEmail
         guard settings.emailEnabled else { notifier = nil; return }
         let cfg = mailConfig
-        let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient }, minInterval: { cfg.minInterval })
+        let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient })
         notifier = n
         Task { await n.setOnStatus { [weak self] id, status, msg in Task { @MainActor in self?.notificationChanged(id, status, msg) } } }
         connectivity.start { Task { await n.flush() } }
@@ -153,6 +151,7 @@ final class AppCoordinator: ObservableObject {
             log(.chargerReconnected, machine.phase.isTheftFlow ? "Charger reconnected; alarm and protection unchanged" : "Charger reconnected", incident: machine.incidentID)
             if machine.phase.isTheftFlow, var i = incident {
                 apply(.chargerReconnected); i.chargerReconnectedAt = Date(); incident = i; try? store?.save(i)
+                response.cancelFollowUps()   // the repeat timer resets; unplugging again starts a new incident and a new timer
                 if settings.stopAlarmOnReconnect, alarm.isActive {
                     alarm.stop(); log(.alarmStopped, "Silenced because the charger was reconnected (setting)", incident: i.id)
                 }
@@ -220,6 +219,27 @@ final class AppCoordinator: ObservableObject {
         apply(.armConfirmed)
         try? store?.setValue("armed", Data("1".utf8)); startHeartbeat()
         log(.protectionArmed, "Armed with charger connected; delay \(Int(settings.disconnectDelay)) s")
+        checkLocationPermission()
+    }
+
+    /// Asks for location when macOS has not been asked yet, otherwise tells the owner exactly what to fix.
+    /// Without permission an alert still works but carries no location, so this is surfaced while arming, not at theft time.
+    func checkLocationPermission() {
+        guard settings.locationEnabled else { return }
+        switch locationProvider.authorization {
+        case .authorized: break
+        case .notDetermined: NSApp.activate(ignoringOtherApps: true); locationProvider.requestAuthorization()
+        default: banner = locationAdvice
+        }
+    }
+
+    var locationAdvice: String {
+        switch locationProvider.authorization {
+        case .denied: return "Location is blocked, so alerts will not include where the Mac is. Open Settings → Location → Open Location Settings and turn MacGuard on. If it is already on, turn it off and on again."
+        case .servicesDisabled: return "Location Services is off in System Settings → Privacy & Security, so alerts will not include a location."
+        case .restricted: return "Location is restricted on this Mac (for example by a profile), so alerts will not include a location."
+        default: return "Location has not been allowed yet. Press Allow in Settings → Location."
+        }
     }
 
     private func restoreProtection(power p: ExternalPower) {
@@ -271,7 +291,10 @@ final class AppCoordinator: ObservableObject {
         let a = await locationService.acquire(enabled: true, accuracy: settings.locationAccuracy, timeout: settings.locationTimeout, allowLastKnown: false)
         if let r = a.record { lastLocation = r }
         log(.testEvent, "Location test: \(a.outcome.rawValue)", test: true)
-        guard let r = a.record else { return "No location (\(a.outcome.rawValue)). Authorization: \(a.authorization.rawValue)." }
+        guard let r = a.record else {
+            if a.outcome == .permissionDenied { return "No location. " + locationAdvice }
+            return "No location (\(a.outcome.rawValue)). Authorization: \(a.authorization.rawValue)."
+        }
         return String(format: "%.5f, %.5f (±%.0f m, %@)", r.latitude, r.longitude, r.horizontalAccuracy ?? -1, r.freshness.rawValue)
     }
 

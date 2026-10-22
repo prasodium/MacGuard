@@ -43,7 +43,7 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Requirements | Supported macOS versions, toolchain, optional Brevo account | [Details](#requirements) |
 | Build, test, run | Commands to test, build and smoke-test the app, plus how to install it | [Details](#build-test-run) |
 | Permissions | What macOS permissions are used and why | [Details](#permissions) |
-| Email setup (Settings → Email) | Brevo account, sender and key, a verified alert address, the optional email delay, and fixes for common errors | [Details](#email-setup-settings--email) |
+| Email setup (Settings → Email) | Brevo account, sender and key, a verified alert address, repeating emails while unplugged, and fixes for common errors | [Details](#email-setup-settings--email) |
 | Limitations | What MacGuard cannot do: monitoring, alarm, lock, location, email | [Details](#limitations) |
 | Find My recovery | How to use Apple's Find My alongside MacGuard | [Details](#find-my-recovery) |
 | Privacy & data | What stays on the Mac and how long it is kept | [Details](#privacy--data) |
@@ -108,7 +108,7 @@ See [TESTING.md](TESTING.md) for exactly what was run.
 | Owner authentication | Alarm stop / disarm require owner authentication (Touch ID or macOS password via the system `LocalAuthentication` prompt; MacGuard never sees the password). |
 | Alert email | incident id, device, battery, power before/after, time zone, alarm & lock status, location (labelled FRESH / CACHED / LAST KNOWN, or "LOCATION UNAVAILABLE"), Apple Maps link only for valid coordinates, recovery steps. |
 | Follow-ups | none / one / periodic; stale or unchanged positions are skipped, never re-sent. |
-| Email delay | Optional minimum wait between alert emails (1 to 60 min, off by default). The first alert is immediate; later ones are held, not lost, and only the newest location update is sent. Test emails and verification codes are not delayed. |
+| Repeat emails while unplugged | Optional. After the charger is unplugged, an email is sent every 1, 2, 5, 10, 15, 30 or 60 minutes (you choose) for as long as it stays unplugged, up to a limit you set. Plugging the charger back in stops and resets the timer; unplugging again starts a new one. Each email carries the best position available, labelled fresh, cached or last known. |
 | Offline outbox | Bounded exponential backoff; resumes on connectivity. |
 
 <p align="right"><a href="#top">Back to top</a></p>
@@ -212,19 +212,17 @@ Email is optional; the alarm and screen lock work without it. Setup takes about 
 2. Type the 6-digit code from the email and press **Verify**. The code expires after 15 minutes, allows 5 attempts, and you can request 3 per hour. Alerts go to an address only after it is verified.
 3. Press **Send test email** and check the inbox and the spam folder. "Accepted by Brevo" means Brevo took the message; inbox delivery is not confirmed.
 
-**Email delay (optional)**
+**Repeat emails while unplugged (optional)**
 
-In **Settings → Email → Email delay** choose **Wait between emails**: No delay (default), or 1, 2, 5, 10, 15, 30 or 60 minutes.
+In **Settings → Email → Repeat emails while unplugged** set **Send** to *Repeat while the charger is unplugged*, then pick **Every** 1, 2, 5, 10, 15, 30 or 60 minutes and **Stop after** (1 to 24 hours).
 
 | Rule | Behavior |
 |---|---|
-| First alert | Sent immediately. |
-| Later alerts | Held until the delay has passed, then sent automatically. Held alerts are not lost, and the wait survives quitting and reopening MacGuard. |
-| Location updates | If several pile up for one incident, only the newest is sent. |
-| Not delayed | **Send test email** and verification codes. |
-| Failed send | A send that Brevo rejects does not start the delay. |
-
-A second, separate theft event during the delay also waits, so its alert can arrive late by up to the delay you chose.
+| Unplug | The first alert is sent at once and the timer starts. |
+| While unplugged | An email goes out every interval (10 minutes means at 10, 20, 30 minutes and so on after the unplug). |
+| Plug the charger back in | The repeats stop and the timer resets. Unplugging again starts a new incident with a new timer. |
+| Each repeat | Includes the best available position and says whether it is fresh, cached or last known. |
+| Stop after | Repeats end after the time you set even if the charger is still unplugged. |
 
 **If something fails**
 

@@ -123,25 +123,20 @@ struct SettingsView: View {
                 Section { Text(m).font(.callout) }
             }
 
-            Section("Follow-ups") {
+            Section("Repeat emails while unplugged") {
                 Picker("Send", selection: s.followUpMode) { ForEach(FollowUpMode.allCases, id: \.self) { Text($0.title).tag($0) } }
                 if c.settings.followUpMode == .periodic {
-                    StepperRow(title: "Every", value: Binding(get: { c.settings.followUpInterval / 60 }, set: { c.settings.followUpInterval = $0 * 60 }), range: 5...60, step: 5, unit: "min")
-                    StepperRow(title: "For up to", value: Binding(get: { c.settings.followUpMaxDuration / 3600 }, set: { c.settings.followUpMaxDuration = $0 * 3600 }), range: 1...24, step: 1, unit: "h")
+                    Picker("Every", selection: Binding(get: { c.settings.followUpInterval }, set: { c.settings.followUpInterval = $0 })) {
+                        ForEach([1.0, 2, 5, 10, 15, 30, 60], id: \.self) { Text("\(Int($0)) min").tag($0 * 60) }
+                        if ![1.0, 2, 5, 10, 15, 30, 60].contains(c.settings.followUpInterval / 60) {
+                            Text("\(Int(c.settings.followUpInterval / 60)) min").tag(c.settings.followUpInterval)
+                        }
+                    }
+                    StepperRow(title: "Stop after", value: Binding(get: { c.settings.followUpMaxDuration / 3600 }, set: { c.settings.followUpMaxDuration = $0 * 3600 }), range: 1...24, step: 1, unit: "h")
+                    Text("The timer starts when the charger is unplugged, and an email is sent every time it runs out while the charger stays unplugged. Plugging the charger back in stops and resets it.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Toggle("Email when reconnected or disarmed", isOn: s.sendRecoveryNotice)
-            }
-
-            Section("Email delay") {
-                Picker("Wait between emails", selection: Binding(get: { c.settings.emailMinInterval }, set: { c.settings.emailMinInterval = $0 })) {
-                    Text("No delay").tag(0.0)
-                    ForEach([1.0, 2, 5, 10, 15, 30, 60], id: \.self) { Text("\(Int($0)) min").tag($0 * 60) }
-                    if ![0.0, 60, 120, 300, 600, 900, 1800, 3600].contains(c.settings.emailMinInterval) {
-                        Text("\(Int(c.settings.emailMinInterval / 60)) min").tag(c.settings.emailMinInterval)
-                    }
-                }
-                Text("The first alert is sent at once. Later alerts wait until this time has passed, and only the newest location update is sent.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
