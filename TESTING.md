@@ -5,18 +5,19 @@ scripts/test.sh   # Swift tests (Swift Testing)
 ```
 
 ## Results at the time of writing (macOS 27.0.1, arm64, Swift 6.4, Command Line Tools only)
-- **90 tests / 11 suites pass**, including:
+- **96 tests / 12 suites pass**, including:
   - power detector & monitor (connected, disconnected, fully charged, low battery, duplicate notifications, unknown, API failure, start-on-battery, transient disconnect, wake)
   - state machine, including repeated unplug/replug cycles that must alarm every time
   - location (fresh, cached, timeout, denied, invalid coordinates, last-known, cancellation)
   - Brevo mailer (request shape, headers, sender parsing, HTTPS-only, error mapping, key storage, key verification)
   - recipient verification (code emailed, hash-only storage, expiry, 5-attempt lockout, single use, rate limit, invalid addresses)
   - notification outbox (backoff, exhaustion, permanent errors, dedupe, offline resend, alerts wait for a verified address)
+  - email delay (first alert immediate, later alerts held then sent, newest location update only, survives restart, test emails not delayed, failed send does not start the delay, old settings default to no delay)
   - email templates (map link only for valid coordinates, honest FRESH/CACHED/LAST KNOWN labels, escaping, required fields)
   - theft response (alarm independent of email/location/lock failure; one execution per incident)
   - security (DB permissions, no key-shaped strings in source, only `BrevoMailer` references Brevo, settings migration)
 - **Real-hardware checks run** (`MacGuard --self-check --play --lock-test`): live IOKit power read, SQLite round-trip and 0600 mode, Keychain round-trip, system sounds present, `NSSound.play()` accepted, **screen lock verified locked via CGSession**, GUI launches without a crash report.
-- **Real network check:** Brevo's `/v3/account` and `/v3/smtp/email` endpoints exist and return the error shape the app parses (`{"message","code"}`, HTTP 401 for an invalid key). **No real Brevo key was available, so a real email has never been sent by this app.**
+- **Real network check:** Brevo's `/v3/account` and `/v3/smtp/email` endpoints exist and return the error shape the app parses (`{"message","code"}`, HTTP 401 for an invalid key). **No real Brevo key was available during development, so these automated tests never sent a real email. The owner has since reported that real alert emails through their own Brevo account work; that was observed by the owner and is not part of the automated tests.**
 
 ## Manual hardware checklist (NOT yet performed unless ticked)
 - [ ] Settings → Email: save a real Brevo key + verified sender; verify your Gmail with the emailed code; Send test email arrives

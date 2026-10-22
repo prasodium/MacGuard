@@ -43,7 +43,7 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Requirements | Supported macOS versions, toolchain, optional Brevo account | [Details](#requirements) |
 | Build, test, run | Commands to test, build and smoke-test the app, plus how to install it | [Details](#build-test-run) |
 | Permissions | What macOS permissions are used and why | [Details](#permissions) |
-| Email setup (Settings → Email) | Four steps from a Brevo key to a verified test email | [Details](#email-setup-settings--email) |
+| Email setup (Settings → Email) | Brevo account, sender and key, a verified alert address, the optional email delay, and fixes for common errors | [Details](#email-setup-settings--email) |
 | Limitations | What MacGuard cannot do: monitoring, alarm, lock, location, email | [Details](#limitations) |
 | Find My recovery | How to use Apple's Find My alongside MacGuard | [Details](#find-my-recovery) |
 | Privacy & data | What stays on the Mac and how long it is kept | [Details](#privacy--data) |
@@ -85,7 +85,7 @@ A native macOS anti-theft utility. While **armed**, MacGuard watches the charger
 | Alarm (repeat, volume boost, preview, authenticated stop) | Implemented; playback start verified on hardware, **audibility/muted-speaker cases untested** |
 | Screen lock (private `SACLockScreenImmediate`, fallback `pmset displaysleepnow`, verified via CGSession) | Implemented; **verified on a real Mac (macOS 27.0.1): session reported locked**. Not tested on other macOS versions |
 | Location (Core Location, timeout, cache/last-known, validation) | Implemented, unit-tested with mocks; **real fix & permission flow awaiting hardware validation** |
-| Email: direct to Brevo (key in Keychain), verified Gmail via emailed code, HTML+text templates, offline queue + backoff | Implemented, unit-tested; the Brevo endpoints were checked against the live API with a dummy key. **A real email has NOT been sent yet** (no key available during development) |
+| Email: direct to Brevo (key in Keychain), verified Gmail via emailed code, HTML+text templates, offline queue + backoff | Implemented, unit-tested; the Brevo endpoints were checked against the live API with a dummy key. Automated tests never send a real email; the owner reports real alerts through their own Brevo account work (not covered by the test suite) |
 | Retry/outbox/offline queue, follow-ups | Implemented, unit-tested |
 | Dashboard, Settings, History, 9-step onboarding, Find My guide, menu bar | Implemented; launch smoke-tested, **not visually reviewed or VoiceOver-audited** |
 | Login item (`SMAppService`), restore-after-restart, sleep/wake handling | Implemented; **not hardware-tested** |
@@ -192,10 +192,52 @@ No Accessibility, Full Disk Access, or admin rights are requested. No privileged
 
 ## Email setup (Settings → Email)
 
-1. Create a free Brevo account, verify **one sender address** (no domain needed), and create an API key (the **Get a key…** button opens Brevo's page).
-2. Paste the key and the verified sender, press **Save**. The key is checked with Brevo and stored **only in your Mac's Keychain** (needs Touch ID/password).
-3. Enter your **Gmail** (any address works), press **Send code**, type the 6-digit code from the email, press **Verify**. Alerts go to an address only after it is verified.
-4. Press **Send test email**.
+Email is optional; the alarm and screen lock work without it. Setup takes about ten minutes and has three parts: a Brevo account with a verified sender, an API key, and a verified alert address.
+
+**Part 1: Brevo account and sender**
+
+1. Sign up for a free account at [brevo.com](https://www.brevo.com) and confirm the email Brevo sends you.
+2. In Brevo, open **Senders, Domains & Dedicated IPs → Senders** and press **Add a sender**. Enter a name and the address alerts should come from (no domain needed).
+3. Open the verification email Brevo sends to that address and confirm it. Wait until the sender shows as **Verified**; an unverified sender is rejected with error 400.
+
+**Part 2: API key**
+
+1. In MacGuard open **Settings → Email** (the gear icon) and press **Get a key…**. This opens Brevo's page (**SMTP & API → API Keys**).
+2. Press **Generate a new API key**, name it `MacGuard`, and copy it. Brevo shows it only once. It must be an **API** key (starts with `xkeysib-`), not an SMTP password.
+3. Back in MacGuard, paste the key into **API key** and type the verified sender into **Sender**, exactly as it appears in Brevo. Press **Save**. The key is checked with Brevo and stored **only in your Mac's Keychain** (needs Touch ID or your password). The Brevo key row changes to "Saved".
+
+**Part 3: Alert address and test**
+
+1. In **Gmail for alerts** enter the address that should receive alerts (any address works) and press **Send code**.
+2. Type the 6-digit code from the email and press **Verify**. The code expires after 15 minutes, allows 5 attempts, and you can request 3 per hour. Alerts go to an address only after it is verified.
+3. Press **Send test email** and check the inbox and the spam folder. "Accepted by Brevo" means Brevo took the message; inbox delivery is not confirmed.
+
+**Email delay (optional)**
+
+In **Settings → Email → Email delay** choose **Wait between emails**: No delay (default), or 1, 2, 5, 10, 15, 30 or 60 minutes.
+
+| Rule | Behavior |
+|---|---|
+| First alert | Sent immediately. |
+| Later alerts | Held until the delay has passed, then sent automatically. Held alerts are not lost, and the wait survives quitting and reopening MacGuard. |
+| Location updates | If several pile up for one incident, only the newest is sent. |
+| Not delayed | **Send test email** and verification codes. |
+| Failed send | A send that Brevo rejects does not start the delay. |
+
+A second, separate theft event during the delay also waits, so its alert can arrive late by up to the delay you chose.
+
+**If something fails**
+
+| Message in MacGuard | Cause | Fix |
+|---|---|---|
+| Brevo rejected the key | Wrong, truncated or revoked key | Generate a new API key and save it again. |
+| Brevo rejected the email. Check that the sender address is verified | Sender not verified, or typed differently | Finish Part 1 and copy the address exactly. |
+| Your Brevo plan cannot send more email right now | Daily limit reached or account not yet activated | Check Brevo's dashboard for a limit or activation notice. |
+| Brevo rate limit reached | Too many requests | Wait and try again. |
+| No Brevo key is saved yet | Save did not complete | Repeat Part 2. |
+| **Send code** is greyed out | No key saved, or the address has no `@` | Save the key first. |
+
+Brevo may hold new accounts for a manual check before they can send, and it may refuse free-mail senders such as `@gmail.com` unless the domain is authenticated. If sending fails after all steps pass, use a sender address on a domain you control.
 
 The trade-off of having the key on the Mac is explained in [SECURITY.md](SECURITY.md): if the Mac is stolen and not recovered, delete the key in Brevo.
 
