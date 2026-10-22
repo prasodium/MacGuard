@@ -56,6 +56,7 @@ final class AppCoordinator: ObservableObject {
         power = PowerMonitor(confirmDelay: settingsStore.settings.disconnectDelay)
         // Views observe the coordinator, but settings live in SettingsStore: forward its changes so every
         // setting (steppers, pickers, toggles) refreshes the UI immediately instead of on the next redraw.
+        settingsStore.$settings.sink { [weak self] s in self?.mailConfig.minInterval = s.emailMinInterval }.store(in: &cancellables)
         settingsStore.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         if store == nil { banner = "Can't save the event log." }
         buildNotifier()
@@ -79,6 +80,7 @@ final class AppCoordinator: ObservableObject {
     /// (Re)creates the Brevo mailer, recipient verifier and notifier from current settings.
     func buildNotifier() {
         mailConfig.sender = settings.senderEmail
+        mailConfig.minInterval = settings.emailMinInterval
         mailConfig.recipient = settings.recipientEmail.isEmpty ? nil : settings.recipientEmail
         guard let store else { return }
         let m = mailer ?? BrevoMailer(secrets: secrets, config: mailConfig)
@@ -87,7 +89,7 @@ final class AppCoordinator: ObservableObject {
         keySaved = m.hasKey; pendingRecipient = verifier?.pendingEmail
         guard settings.emailEnabled else { notifier = nil; return }
         let cfg = mailConfig
-        let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient })
+        let n = TheftNotificationService(mailer: m, store: store, recipient: { cfg.recipient }, minInterval: { cfg.minInterval })
         notifier = n
         Task { await n.setOnStatus { [weak self] id, status, msg in Task { @MainActor in self?.notificationChanged(id, status, msg) } } }
         connectivity.start { Task { await n.flush() } }

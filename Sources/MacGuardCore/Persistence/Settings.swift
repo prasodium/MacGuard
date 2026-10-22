@@ -42,6 +42,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var followUpInterval: TimeInterval = 600
     public var followUpMaxDuration: TimeInterval = 6 * 3600
     public var sendRecoveryNotice = false
+    /// Minimum seconds between alert emails (0 = no delay). The first alert is always sent at once; later ones wait for the interval.
+    public var emailMinInterval: TimeInterval = 0
     public var locationEnabled = true
     public var locationAccuracy: LocationAccuracySetting = .tenMeters
     public var locationTimeout: TimeInterval = 20
@@ -69,6 +71,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         followUpInterval = try c.decodeIfPresent(type(of: d.followUpInterval).self, forKey: .followUpInterval) ?? d.followUpInterval
         followUpMaxDuration = try c.decodeIfPresent(type(of: d.followUpMaxDuration).self, forKey: .followUpMaxDuration) ?? d.followUpMaxDuration
         sendRecoveryNotice = try c.decodeIfPresent(type(of: d.sendRecoveryNotice).self, forKey: .sendRecoveryNotice) ?? d.sendRecoveryNotice
+        emailMinInterval = try c.decodeIfPresent(type(of: d.emailMinInterval).self, forKey: .emailMinInterval) ?? d.emailMinInterval
         locationEnabled = try c.decodeIfPresent(type(of: d.locationEnabled).self, forKey: .locationEnabled) ?? d.locationEnabled
         locationAccuracy = try c.decodeIfPresent(type(of: d.locationAccuracy).self, forKey: .locationAccuracy) ?? d.locationAccuracy
         locationTimeout = try c.decodeIfPresent(type(of: d.locationTimeout).self, forKey: .locationTimeout) ?? d.locationTimeout

@@ -74,14 +74,20 @@ public actor TheftNotificationService: IncidentNotifying {
     private let sleeper: @Sendable (TimeInterval) async -> Void
     private let retryDelays: [TimeInterval]
     private let maxAttemptsPerFlush: Int
+    private let minInterval: @Sendable () -> TimeInterval
+    private let clock: @Sendable () -> Date
+    private var wake: Task<Void, Never>?
     private var flushing = false
+    private static let lastSentKey = "email.lastSent"
     public var onStatus: (@Sendable (UUID, NotificationStatus, String) -> Void)?
 
     public init(mailer: MailSending, store: SecurityEventStore, recipient: @escaping @Sendable () -> String?,
                 retryDelays: [TimeInterval] = [2, 4, 8, 16, 32],
+                minInterval: @escaping @Sendable () -> TimeInterval = { 0 },
+                clock: @escaping @Sendable () -> Date = { Date() },
                 sleeper: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.mailer = mailer; self.store = store; self.recipient = recipient
-        self.retryDelays = retryDelays; self.sleeper = sleeper
+        self.retryDelays = retryDelays; self.sleeper = sleeper; self.minInterval = minInterval; self.clock = clock
         self.maxAttemptsPerFlush = retryDelays.count + 1
     }
 
@@ -143,12 +149,40 @@ public actor TheftNotificationService: IncidentNotifying {
         }
     }
 
+    /// Earliest time the next alert email may go out, or nil when there is no delay or nothing was sent yet.
+    private func nextAllowedSend() -> Date? {
+        let gap = minInterval()
+        guard gap > 0, let d = try? store.value(Self.lastSentKey), let t = String(data: d, encoding: .utf8).flatMap(Double.init) else { return nil }
+        return Date(timeIntervalSince1970: t).addingTimeInterval(gap)
+    }
+
+    private static func sequence(_ id: String) -> Int { Int(id.split(separator: ":").last ?? "") ?? 0 }
+
+    private func recordSent() { try? store.setValue(Self.lastSentKey, Data(String(clock().timeIntervalSince1970).utf8)) }
+
+    /// Wakes the queue when the delay ends so held alerts are sent without any other event.
+    private func scheduleWake(at due: Date) {
+        wake?.cancel()
+        let secs = max(1, due.timeIntervalSince(clock()) + 0.5)
+        wake = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(secs * 1e9))
+            if !Task.isCancelled { await self?.flush() }
+        }
+    }
+
     /// Delivers all due items. Safe to call repeatedly (e.g. when connectivity returns); never runs concurrently.
     public func flush() async {
         guard !flushing else { return }
         flushing = true; defer { flushing = false }
         guard let items = try? store.outbox(state: "pending") else { return }
-        for item in items where item.nextAttempt <= Date() {
+        wake?.cancel(); wake = nil
+        for item in items where item.nextAttempt <= clock() {
+            // Delay between alert emails: only the newest pending location update per incident is worth sending.
+            if item.kind == "location", items.contains(where: { $0.kind == "location" && $0.incidentID == item.incidentID && Self.sequence($0.id) > Self.sequence(item.id) }) {
+                try? store.updateOutbox(id: item.id, state: "superseded", attempts: item.attempts, next: clock(), error: "Replaced by a newer location update")
+                continue
+            }
+            if let due = nextAllowedSend(), due > clock() { scheduleWake(at: due); break }
             guard let mail = try? render(item) else {
                 try? store.updateOutbox(id: item.id, state: "failed", attempts: item.attempts, next: Date(), error: "Unreadable queued alert")
                 continue
@@ -164,6 +198,7 @@ public actor TheftNotificationService: IncidentNotifying {
                 do {
                     _ = try await mailer.send(OutgoingMail(to: to, subject: mail.subject, html: mail.html, text: mail.text))
                     try? store.updateOutbox(id: item.id, state: "accepted", attempts: attempts, next: Date(), error: nil)
+                    recordSent()
                     onStatus?(item.incidentID, .accepted, "Accepted by Brevo")
                     break
                 } catch let e as APIError {

@@ -131,6 +131,18 @@ struct SettingsView: View {
                 }
                 Toggle("Email when reconnected or disarmed", isOn: s.sendRecoveryNotice)
             }
+
+            Section("Email delay") {
+                Picker("Wait between emails", selection: Binding(get: { c.settings.emailMinInterval }, set: { c.settings.emailMinInterval = $0 })) {
+                    Text("No delay").tag(0.0)
+                    ForEach([1.0, 2, 5, 10, 15, 30, 60], id: \.self) { Text("\(Int($0)) min").tag($0 * 60) }
+                    if ![0.0, 60, 120, 300, 600, 900, 1800, 3600].contains(c.settings.emailMinInterval) {
+                        Text("\(Int(c.settings.emailMinInterval / 60)) min").tag(c.settings.emailMinInterval)
+                    }
+                }
+                Text("The first alert is sent at once. Later alerts wait until this time has passed, and only the newest location update is sent.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear { if brevoFrom.isEmpty { brevoFrom = c.settings.senderEmail } }

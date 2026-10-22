@@ -108,6 +108,7 @@ See [TESTING.md](TESTING.md) for exactly what was run.
 | Owner authentication | Alarm stop / disarm require owner authentication (Touch ID or macOS password via the system `LocalAuthentication` prompt; MacGuard never sees the password). |
 | Alert email | incident id, device, battery, power before/after, time zone, alarm & lock status, location (labelled FRESH / CACHED / LAST KNOWN, or "LOCATION UNAVAILABLE"), Apple Maps link only for valid coordinates, recovery steps. |
 | Follow-ups | none / one / periodic; stale or unchanged positions are skipped, never re-sent. |
+| Email delay | Optional minimum wait between alert emails (1 to 60 min, off by default). The first alert is immediate; later ones are held, not lost, and only the newest location update is sent. Test emails and verification codes are not delayed. |
 | Offline outbox | Bounded exponential backoff; resumes on connectivity. |
 
 <p align="right"><a href="#top">Back to top</a></p>
