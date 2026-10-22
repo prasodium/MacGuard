@@ -21,7 +21,7 @@ ditto -c -k --keepParent "$APP" "$OUT/MacGuard-$VERSION.zip"
 # dmg: the app next to an Applications shortcut
 mkdir "$WORK/dmg" && cp -R "$APP" "$WORK/dmg/" && ln -s /Applications "$WORK/dmg/Applications"
 hdiutil create -volname "MacGuard $VERSION" -srcfolder "$WORK/dmg" -fs HFS+ -format UDZO -ov "$OUT/MacGuard-$VERSION.dmg" >/dev/null
-[ "${SIGN_IDENTITY:--}" != "-" ] && codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/MacGuard-$VERSION.dmg"
+[ "${SIGN_IDENTITY:--}" != "-" ] && [ -z "${SIGN_KEYCHAIN:-}" ] && codesign --force --sign "$SIGN_IDENTITY" --timestamp "$OUT/MacGuard-$VERSION.dmg" || true
 
 # pkg: always installs to /Applications, even if another copy of the app exists elsewhere
 mkdir -p "$WORK/root/Applications" && cp -R "$APP" "$WORK/root/Applications/"

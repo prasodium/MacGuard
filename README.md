@@ -272,7 +272,7 @@ Everything stays on the Mac except the alert emails sent through your Brevo acco
 | Symptom | What to do |
 |---|---|
 | *"Cannot arm"* | Charger unplugged or power unreadable; plug in and check Dashboard → Monitoring. |
-| *Location unavailable* | Grant permission in System Settings; run **Test Location**. Unsigned dev runs (bare binary) can't get a prompt; use the `.app`. |
+| *Location unavailable* | Open Settings → Location. If it says *Not asked yet*, press **Allow**. If it says *Denied*, press **Open Location Settings**, turn MacGuard on (or off and on again), then run **Test Location**. After updating from 0.2.0 or earlier you must allow it once more; from 0.2.1 on the permission survives updates because the app now has a fixed signing identity. Unsigned dev runs (bare binary) can't get a prompt; use the `.app`. |
 | *Email not arriving* | The Test result is shown in Settings → Email / Tests. 401 = bad key; 400 = the sender is not verified in Brevo; also check spam and Brevo's logs. |
 | *Screen lock "unverified"* | The private call was unavailable and the fallback only slept the display; set Lock Screen → Require password → Immediately. |
 | *Login item not starting* | Approve it in System Settings → General → Login Items. |
@@ -284,7 +284,9 @@ Everything stays on the Mac except the alert emails sent through your Brevo acco
 <details>
 <summary>Show release and notarization steps (contributors)</summary>
 
-`SIGN_IDENTITY="Developer ID Application: …" scripts/package.sh` signs with hardened runtime and builds the `.dmg`, `.pkg` and `.zip` in `dist/` (plus `SHA256SUMS.txt`; set `INSTALLER_IDENTITY="Developer ID Installer: …"` to sign the `.pkg`); then `xcrun notarytool submit … --wait` and `xcrun stapler staple` (for the `.dmg`). Not performed for this repository's current state; test location, login item and sleep/wake with the signed build (they can behave differently from debug/ad-hoc).
+`SIGN_IDENTITY="Developer ID Application: …" scripts/package.sh` signs with hardened runtime and builds the `.dmg`, `.pkg` and `.zip` in `dist/` (plus `SHA256SUMS.txt`; set `INSTALLER_IDENTITY="Developer ID Installer: …"` to sign the `.pkg`); then `xcrun notarytool submit … --wait` and `xcrun stapler staple` (for the `.dmg`). 
+
+**Fixed local identity (no Apple account needed).** Ad-hoc signing (`-`) gives every build a new identity, so macOS forgets the Location permission after each update. 0.2.1 and later are signed with a self-signed certificate that stays the same: create it once (a code-signing certificate in a dedicated keychain), then run `SIGN_IDENTITY="<certificate name>" SIGN_KEYCHAIN=<path to that keychain> scripts/package.sh` (add `SIGN_KEYCHAIN_PASSWORD` if the keychain has one). Keep the certificate's private key out of the repository. This is not notarized, so the first launch still needs right-click Open. For Developer ID notarization: not performed for this repository's current state; test location, login item and sleep/wake with the signed build (they can behave differently from debug/ad-hoc).
 
 </details>
 
